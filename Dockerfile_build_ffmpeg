@@ -16,7 +16,6 @@ RUN apk add --no-cache \
     freetype-dev \
     gnutls-dev \
     lame-dev \
-    sdl2-dev \
     libtool \
     libva-dev \
     libvdpau-dev \
