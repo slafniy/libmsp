@@ -1,0 +1,57 @@
+FROM alpine:3.21 AS builder
+
+RUN apk add --no-cache git
+
+RUN git clone https://git.ffmpeg.org/ffmpeg.git -b release/9.0
+
+WORKDIR /ffmpeg
+
+# ffmpeg build dependencies
+RUN apk add --no-cache \
+    alpine-sdk \
+    autoconf \
+    automake \
+    cmake \
+    libass-dev \
+    freetype-dev \
+    gnutls-dev \
+    lame-dev \
+    sdl2-dev \
+    libtool \
+    libva-dev \
+    libvdpau-dev \
+    libvorbis-dev \
+    libxcb-dev \
+    meson \
+    ninja-build \
+    pkgconf \
+    texinfo \
+    wget \
+    yasm \
+    zlib-dev
+
+RUN ./configure \
+    --enable-pic \
+    --extra-cflags="-fPIC" \
+    --enable-static \
+    --disable-x86asm \
+    --disable-shared \
+    --disable-everything \
+    --disable-programs \
+    --disable-doc \
+    --disable-network \
+    --disable-autodetect \
+    --enable-static \
+    --disable-shared \
+    --enable-avcodec \
+    --enable-avformat \
+    --enable-avutil \
+    --enable-swresample \
+    --enable-decoder=mp3,aac,flac \
+    --enable-demuxer=mp3,mov,flac \
+    --enable-parser=mpegaudio,aac,flac \
+    --enable-protocol=file
+
+RUN make -j$(nproc - 1)
+
+RUN make install DESTDIR=/install
