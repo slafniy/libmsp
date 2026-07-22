@@ -3,8 +3,12 @@ project(libmsp C)
 
 set(CMAKE_C_STANDARD 23)
 
-add_library(libmsp STATIC ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c)
-set_target_properties(libmsp PROPERTIES PREFIX "")
+add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c)
+set_target_properties(libmsp PROPERTIES
+        PREFIX ""
+        VERSION 1.0.0
+        SOVERSION 1
+)
 
 target_include_directories(libmsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
