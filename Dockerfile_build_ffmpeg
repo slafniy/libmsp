@@ -16,6 +16,9 @@ RUN ./configure \
     --enable-pic \
     --extra-cflags="-fPIC" \
     --enable-static \
+    --disable-iconv \
+    --disable-debug \
+    --disable-runtime-cpudetect \
     --disable-x86asm \
     --disable-shared \
     --disable-everything \
@@ -23,14 +26,13 @@ RUN ./configure \
     --disable-doc \
     --disable-network \
     --disable-autodetect \
-    --enable-static \
-    --disable-shared \
+    --enable-small \
     --enable-avcodec \
     --enable-avformat \
     --enable-avutil \
     --enable-swresample \
-    --enable-decoder=mp3,aac,flac,vorbis \
-    --enable-demuxer=mp3,mov,flac,vorbis \
+    --enable-decoder=mp3,aac,flac,vorbis,alac \
+    --enable-demuxer=mp3,mov,flac,ogg \
     --enable-parser=mpegaudio,aac,flac \
     --enable-protocol=file
 
