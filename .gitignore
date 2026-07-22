@@ -1,4 +1,9 @@
+# IDE files
 .idea
 
+# build files
 cmake-build-debug
 cmake-build-release
+
+# ffmpeg build results
+ffmpeg-static
