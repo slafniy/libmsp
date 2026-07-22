@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 4.2)
 project(libmsp C)
 
 set(CMAKE_C_STANDARD 23)
+set(BUILD_SHARED_LIBS OFF)
 
 # The main output - single shared library
 add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c)

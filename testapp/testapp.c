@@ -1,6 +1,6 @@
 #include "../src/libmsp.h"
 
 int main() {
-    hello();
+    msp_play("testapp/test.ogg");
     return 0;
 }

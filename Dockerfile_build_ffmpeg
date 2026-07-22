@@ -9,24 +9,7 @@ WORKDIR /ffmpeg
 # ffmpeg build dependencies
 RUN apk add --no-cache \
     alpine-sdk \
-    autoconf \
-    automake \
-    cmake \
-    libass-dev \
-    freetype-dev \
-    gnutls-dev \
-    lame-dev \
-    libtool \
-    libva-dev \
-    libvdpau-dev \
-    libvorbis-dev \
-    libxcb-dev \
-    meson \
-    ninja-build \
     pkgconf \
-    texinfo \
-    wget \
-    yasm \
     zlib-dev
 
 RUN ./configure \
@@ -46,8 +29,8 @@ RUN ./configure \
     --enable-avformat \
     --enable-avutil \
     --enable-swresample \
-    --enable-decoder=mp3,aac,flac \
-    --enable-demuxer=mp3,mov,flac \
+    --enable-decoder=mp3,aac,flac,vorbis \
+    --enable-demuxer=mp3,mov,flac,vorbis \
     --enable-parser=mpegaudio,aac,flac \
     --enable-protocol=file
 
