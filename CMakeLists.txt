@@ -12,7 +12,16 @@ set_target_properties(libmsp PROPERTIES
         SOVERSION 1
 )
 
-target_include_directories(libmsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(libmsp PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-static/include)
+target_link_libraries(libmsp PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-static/lib/libavformat.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-static/lib/libavcodec.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-static/lib/libswresample.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-static/lib/libavutil.a
+        m
+)
 
 # Executable app sample to demonstrate how library works
 add_executable(testapp ${CMAKE_CURRENT_SOURCE_DIR}/testapp/testapp.c)
