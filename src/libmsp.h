@@ -19,9 +19,10 @@ typedef struct {
     int bitrate;
 } msp_track_meta_t;
 
-/// Init and destroy, should be called once
-void msp_init(void);
+// Creates playback thread and it's context. Should be called before any other function.
+int msp_init(void);
 
+// Shuts playback thread, frees all allocated memory
 void msp_deinit(void);
 
 

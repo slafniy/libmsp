@@ -5,7 +5,9 @@ set(CMAKE_C_STANDARD 23)
 set(BUILD_SHARED_LIBS OFF)
 
 # The main output - single shared library
-add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c)
+add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c
+        src/command_q.h
+        src/command_q.c)
 set_target_properties(libmsp PROPERTIES
         PREFIX ""
         VERSION 1.0.0
