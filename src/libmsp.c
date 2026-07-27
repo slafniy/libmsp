@@ -11,7 +11,7 @@
 #include "libavutil/error.h"
 #include "libavcodec/avcodec.h"
 #include "libswresample/swresample.h"
-#include "SDL2/SDL.h"
+#include "SDL3/SDL.h"
 
 #define DEFERRED_CLEANUP(clean_func) __attribute__((cleanup(clean_func)))
 
@@ -27,7 +27,7 @@ fprintf(stderr, "[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
 #define MAIN_THREAD_NAME "libmsp main"
 
 #define SAMPLE_RATE 96000
-#define SDL_FORMAT AUDIO_F32
+#define SDL_FORMAT SDL_AUDIO_F32
 #define PLAYBACK_BUFFER_SIZE_SEC 0.5f
 // How long is allowed to wait if playback buffer is already full
 #define SDL_DELAY_MS 5
@@ -35,9 +35,7 @@ fprintf(stderr, "[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
 const SDL_AudioSpec msp_sdl_wanted_spec = {
     .freq = SAMPLE_RATE,
     .format = SDL_FORMAT,
-    .channels = 2,
-    .samples = 2048,
-    .callback = nullptr
+    .channels = 2
 };
 
 // should match msp_sdl_wanted_spec!
@@ -48,7 +46,7 @@ typedef struct {
     // libmsp specific data
     char *filename; // path to file we want to play
     msp_status_t status; // playback status, used to control playback thread
-    float volume;  // 0..1.0f
+    float volume; // 0..1.0f
 
     // ffmpeg data - open file, find stream, decode etc
     int audio_stream_index;
@@ -63,8 +61,8 @@ typedef struct {
 // Global variables
 //======================================================================================================================
 static pthread_t msp_playback_thread; // handles commands and uses ffmpeg libs to open and play files
-static msp_command_q_t *msp_command_q; // queue for commands for playback thread
-static SDL_AudioDeviceID msp_sdl_device_id;
+static msp_command_q_t *msp_command_q = nullptr; // queue for commands for playback thread
+static SDL_AudioStream *msp_sdl_stream = nullptr;
 static uint32_t msp_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
 static SDL_AudioSpec msp_sdl_obtained_spec; // to store real SDL specs
 
@@ -83,7 +81,7 @@ static void msp_free_playback_context(playback_context_t **playback_context) {
     *playback_context = nullptr;
 }
 
-static void msp_handle_ffmpeg_error(const char *what, int err) {
+static void msp_handle_ffmpeg_error(const char *what, const int err) {
     char buf[AV_ERROR_MAX_STRING_SIZE];
     av_strerror(err, buf, sizeof(buf));
     // TODO: figure out why system errors do not show
@@ -92,42 +90,50 @@ static void msp_handle_ffmpeg_error(const char *what, int err) {
 
 const char *msp_sdl_format_to_str(const SDL_AudioFormat format) {
     switch (format) {
-        case AUDIO_S8: return "S8 (8-bit signed)";
-        case AUDIO_U8: return "U8 (8-bit unsigned)";
-        case AUDIO_S16LSB: return "S16LE (16-bit signed Little-Endian)";
-        case AUDIO_S16MSB: return "S16BE (16-bit signed Big-Endian)";
-        case AUDIO_U16LSB: return "U16LE (16-bit unsigned Little-Endian)";
-        case AUDIO_U16MSB: return "U16BE (16-bit unsigned Big-Endian)";
-        case AUDIO_S32LSB: return "S32LE (32-bit signed Little-Endian)";
-        case AUDIO_S32MSB: return "S32BE (32-bit signed Big-Endian)";
-        case AUDIO_F32LSB: return "F32LE (32-bit float Little-Endian)";
-        case AUDIO_F32MSB: return "F32BE (32-bit float Big-Endian)";
+        case SDL_AUDIO_S8: return "S8 (8-bit signed)";
+        case SDL_AUDIO_U8: return "U8 (8-bit unsigned)";
+        case SDL_AUDIO_S16LE: return "S16LE (16-bit signed Little-Endian)";
+        case SDL_AUDIO_S16BE: return "S16BE (16-bit signed Big-Endian)";
+        case SDL_AUDIO_S32LE: return "S32LE (32-bit signed Little-Endian)";
+        case SDL_AUDIO_S32BE: return "S32BE (32-bit signed Big-Endian)";
+        case SDL_AUDIO_F32LE: return "F32LE (32-bit float Little-Endian)";
+        case SDL_AUDIO_F32BE: return "F32BE (32-bit float Big-Endian)";
         default: return "UNKNOWN";
     }
 }
 
-bool msp_init_sdl2() {
-    if (SDL_Init(SDL_INIT_AUDIO) < 0) {
+bool msp_init_sdl3() {
+    if (SDL_Init(SDL_INIT_AUDIO)) {
         LOG_ERROR(MAIN_THREAD_NAME, "Cannot init SDL: %s", SDL_GetError());
         return false;
     }
 
-    msp_sdl_device_id = SDL_OpenAudioDevice(nullptr, 0, &msp_sdl_wanted_spec, &msp_sdl_obtained_spec, 0);
-    if (msp_sdl_device_id == 0) {
-        LOG_ERROR(MAIN_THREAD_NAME, "Failed to open audio device: %s", SDL_GetError());
+    msp_sdl_stream = SDL_OpenAudioDeviceStream(
+        SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+        &msp_sdl_wanted_spec,
+        nullptr,
+        nullptr);
+
+    if (!msp_sdl_stream) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Failed to open audio device stream: %s", SDL_GetError());
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
         return false;
     }
+
+    SDL_GetAudioStreamFormat(msp_sdl_stream, &msp_sdl_obtained_spec, nullptr);
+
     if (msp_sdl_obtained_spec.format != msp_sdl_wanted_spec.format) {
         LOG_ERROR(MAIN_THREAD_NAME, "Cannot initialize SDL! Wanted format: %s, obtained: %s",
-            msp_sdl_format_to_str(msp_sdl_wanted_spec.format),
-            msp_sdl_format_to_str(msp_sdl_obtained_spec.format));
+                  msp_sdl_format_to_str(msp_sdl_wanted_spec.format),
+                  msp_sdl_format_to_str(msp_sdl_obtained_spec.format));
+        SDL_DestroyAudioStream(msp_sdl_stream);
+        msp_sdl_stream = nullptr;
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
         return false;
     }
 
     // Calculate audio device max allowed queue size
-    const uint32_t bytes_per_sample = SDL_AUDIO_BITSIZE(msp_sdl_obtained_spec.format) / 8;
+    const uint32_t bytes_per_sample = SDL_AUDIO_BYTESIZE(msp_sdl_obtained_spec.format);
     const uint32_t bytes_per_frame = msp_sdl_obtained_spec.channels * bytes_per_sample;
     msp_sdl_queue_size_bytes = (uint32_t) (
         PLAYBACK_BUFFER_SIZE_SEC * (float) msp_sdl_obtained_spec.freq * (float) bytes_per_frame);
@@ -135,19 +141,17 @@ bool msp_init_sdl2() {
     LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", msp_sdl_obtained_spec.freq,
              msp_sdl_format_to_str(msp_sdl_obtained_spec.format));
 
-    SDL_PauseAudioDevice(msp_sdl_device_id, 0); // unpause because it's paused by default
+    SDL_ResumeAudioStreamDevice(msp_sdl_stream); // unpause because it's paused by default
     return true;
 }
 
-void msp_deinit_sdl2() {
-    SDL_PauseAudioDevice(msp_sdl_device_id, 1);
-    SDL_ClearQueuedAudio(msp_sdl_device_id);
-
-    if (msp_sdl_device_id != 0) {
-        SDL_CloseAudioDevice(msp_sdl_device_id);
-        msp_sdl_device_id = 0;
+void msp_deinit_sdl3() {
+    if (msp_sdl_stream) {
+        SDL_PauseAudioStreamDevice(msp_sdl_stream);
+        SDL_ClearAudioStream(msp_sdl_stream);
+        SDL_DestroyAudioStream(msp_sdl_stream);
+        msp_sdl_stream = nullptr;
     }
-
     SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
@@ -263,8 +267,8 @@ static void msp_apply_volume(void *out_buffer, const size_t buffer_size, const f
 void msp_handle_command(playback_context_t *playback_context, const msp_command_t *command) {
     switch (command->type) {
         case MSP_PLAY:
-            // clear audio device
-            SDL_ClearQueuedAudio(msp_sdl_device_id);
+            // clear audio stream
+            SDL_ClearAudioStream(msp_sdl_stream);
             // clear existing data from context
             msp_clear_playback_context(playback_context);
 
@@ -279,15 +283,19 @@ void msp_handle_command(playback_context_t *playback_context, const msp_command_
             break;
         case MSP_STOP:
             playback_context->status = MSP_STATUS_IDLE;
+            SDL_ClearAudioStream(msp_sdl_stream);
             LOG_INFO(PLAYBACK_THREAD_NAME, "Stopping current playback");
             break;
         case MSP_TOGGLE_PAUSE:
             if (playback_context->status == MSP_STATUS_PLAYING) {
                 playback_context->status = MSP_STATUS_PAUSED;
+                SDL_PauseAudioStreamDevice(msp_sdl_stream);
+                LOG_INFO(PLAYBACK_THREAD_NAME, "Pausing");
             } else if (playback_context->status == MSP_STATUS_PAUSED) {
                 playback_context->status = MSP_STATUS_PLAYING;
+                SDL_ResumeAudioStreamDevice(msp_sdl_stream);
+                LOG_INFO(PLAYBACK_THREAD_NAME, "Resuming");
             }
-            LOG_INFO(PLAYBACK_THREAD_NAME, "Toggling pause");
             break;
         case MSP_SET_VOLUME:
             playback_context->volume = command->payload.volume;
@@ -305,7 +313,7 @@ void msp_handle_command(playback_context_t *playback_context, const msp_command_
 // Playback thread function. Decodes a frame and sends data to SDL2
 void msp_decode_next_frame(playback_context_t *ctx) {
     // do not load CPU too much, keep only small buffer of decoded data
-    if (SDL_GetQueuedAudioSize(msp_sdl_device_id) > msp_sdl_queue_size_bytes) {
+    if (SDL_GetAudioStreamQueued(msp_sdl_stream) > msp_sdl_queue_size_bytes) {
         SDL_Delay(SDL_DELAY_MS);
     }
 
@@ -318,7 +326,7 @@ void msp_decode_next_frame(playback_context_t *ctx) {
             avcodec_send_packet(ctx->av_codec_context, nullptr);
 
             // Stop playback if all frames played and SDL q is empty
-            if (SDL_GetQueuedAudioSize(msp_sdl_device_id) == 0) {
+            if (SDL_GetAudioStreamQueued(msp_sdl_stream) == 0) {
                 LOG_INFO(PLAYBACK_THREAD_NAME, "Playback finished (EOF)");
                 ctx->status = MSP_STATUS_IDLE;
             }
@@ -385,16 +393,16 @@ void msp_decode_next_frame(playback_context_t *ctx) {
             );
 
 
-
             if (dst_nb_samples > 0) {
-                const uint32_t bytes_per_sample = (uint32_t) SDL_AUDIO_BITSIZE(msp_sdl_obtained_spec.format) / 8U;
+                const uint32_t bytes_per_sample = SDL_AUDIO_BYTESIZE(msp_sdl_obtained_spec.format);
                 const uint32_t bytes_per_frame = (uint32_t) msp_sdl_obtained_spec.channels * bytes_per_sample;
-                const uint32_t buffer_size = (uint32_t) dst_nb_samples * bytes_per_frame;
+                const uint32_t buffer_size = dst_nb_samples * bytes_per_frame;
 
                 // Adjust volume
                 msp_apply_volume(out_buffer, buffer_size, ctx->volume);
 
-                SDL_QueueAudio(msp_sdl_device_id, out_buffer, buffer_size);
+                // And finally, push PCM data to SDL
+                SDL_PutAudioStreamData(msp_sdl_stream, out_buffer, (int32_t) buffer_size);
             }
 
             av_freep(&out_buffer);
@@ -477,7 +485,7 @@ int msp_init() {
     msp_command_q = calloc(1, sizeof(*msp_command_q));
     msp_q_init(msp_command_q);
 
-    if (!msp_init_sdl2()) {
+    if (!msp_init_sdl3()) {
         return -1;
     }
 
@@ -492,7 +500,7 @@ void msp_deinit(void) {
     pthread_join(msp_playback_thread, nullptr);
     msp_q_destroy(msp_command_q);
 
-    msp_deinit_sdl2();
+    msp_deinit_sdl3();
 }
 
 
