@@ -4,6 +4,8 @@ project(libmsp C)
 set(CMAKE_C_STANDARD 23)
 set(BUILD_SHARED_LIBS OFF)
 
+find_package(SDL2 REQUIRED)
+
 # The main output - single shared library
 add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c
         src/command_q.h
@@ -23,6 +25,7 @@ target_link_libraries(libmsp PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-static/lib/libswresample.a
         ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-static/lib/libavutil.a
         m
+        SDL2::SDL2
 )
 
 # Executable app sample to demonstrate how library works

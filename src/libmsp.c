@@ -10,6 +10,7 @@
 #include "libavformat/avformat.h"
 #include "libavutil/error.h"
 #include "libavcodec/avcodec.h"
+#include "SDL2/SDL.h"
 
 #define DEFERRED_CLEANUP(clean_func) __attribute__((cleanup(clean_func)))
 
@@ -24,17 +25,23 @@ fprintf(stderr, "[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
 #define PLAYBACK_THREAD_NAME "libmsp playback"
 #define MAIN_THREAD_NAME "libmsp main"
 
-static pthread_t playback_thread; // handles commands and uses ffmpeg libs to open and play files
-static msp_command_q_t *q; // queue for commands for playback thread
-
 
 typedef struct {
-    char *filename;
+    // libmsp specific data
+    char *filename; // path to file we want to play
+    msp_status_t status; // playback status, used to control playback thread
+
+    // ffmpeg data - open file, find stream, decode etc
     AVFormatContext *av_format_context;
     AVCodecContext *av_codec_context;
-    msp_status_t status;
 } playback_context_t;
 
+//======================================================================================================================
+// Global variables
+//======================================================================================================================
+static pthread_t playback_thread; // handles commands and uses ffmpeg libs to open and play files
+static msp_command_q_t *q; // queue for commands for playback thread
+static SDL_AudioDeviceID sdl_device_id;
 
 // ReSharper disable once CppDeclaratorNeverUsed - uses via macro
 static void msp_free_playback_context(playback_context_t **playback_context) {
@@ -54,8 +61,53 @@ static void msp_handle_ffmpeg_error(const char *what, int err) {
     fprintf(stderr, "libmsp: %s error: %s\n", what, buf);
 }
 
+const char *msp_sdl_format_to_str(const SDL_AudioFormat format) {
+    switch (format) {
+        case AUDIO_S8: return "S8 (8-bit signed)";
+        case AUDIO_U8: return "U8 (8-bit unsigned)";
+        case AUDIO_S16LSB: return "S16LE (16-bit signed Little-Endian)";
+        case AUDIO_S16MSB: return "S16BE (16-bit signed Big-Endian)";
+        case AUDIO_U16LSB: return "U16LE (16-bit unsigned Little-Endian)";
+        case AUDIO_U16MSB: return "U16BE (16-bit unsigned Big-Endian)";
+        case AUDIO_S32LSB: return "S32LE (32-bit signed Little-Endian)";
+        case AUDIO_S32MSB: return "S32BE (32-bit signed Big-Endian)";
+        case AUDIO_F32LSB: return "F32LE (32-bit float Little-Endian)";
+        case AUDIO_F32MSB: return "F32BE (32-bit float Big-Endian)";
+        default: return "UNKNOWN";
+    }
+}
+
+bool msp_init_sdl2() {
+    if (SDL_Init(SDL_INIT_AUDIO) < 0) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Cannot init SDL: %s", SDL_GetError());
+        return false;
+    }
+    const SDL_AudioSpec wanted_spec = {
+        .freq = 96000,
+        .format = AUDIO_F32,
+        .channels = 2,
+        .samples = 2048,
+        .callback = nullptr
+    };
+    SDL_AudioSpec obtained_spec;
+    sdl_device_id = SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &obtained_spec, 0);
+    if (sdl_device_id == 0) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Failed to open audio device: %s", SDL_GetError());
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+        return false;
+    }
+    LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", obtained_spec.freq,
+             msp_sdl_format_to_str(obtained_spec.format));
+
+    SDL_PauseAudioDevice(sdl_device_id, 0); // unpause because it's paused by default
+    return true;
+}
+
+void msp_deinit_sdl2() {
+}
+
 // Playback thread function
-bool open_new_file(playback_context_t *playback_context) {
+bool msp_open_new_file(playback_context_t *playback_context) {
     int ret = avformat_open_input(&playback_context->av_format_context, playback_context->filename, nullptr, nullptr);
     if (ret < 0) {
         msp_handle_ffmpeg_error("avformat_open_input", ret);
@@ -76,14 +128,14 @@ bool open_new_file(playback_context_t *playback_context) {
     return true;
 }
 
-// Playback thread function. Determines what thread should do in the next iteration
-void handle_command(playback_context_t *playback_context, msp_command_t *command) {
+// Playback thread function. Determines what thread should do in the next iteration and sets playback_context->status
+void msp_handle_command(playback_context_t *playback_context, const msp_command_t *command) {
     switch (command->type) {
         case MSP_PLAY:
             playback_context->filename = strdup(command->payload.filename);
             free(command->payload.filename);
             LOG_INFO(PLAYBACK_THREAD_NAME, "New music file: %s", playback_context->filename);
-            if (!open_new_file(playback_context)) {
+            if (!msp_open_new_file(playback_context)) {
                 LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot play %s", playback_context->filename);
             }
             playback_context->status = MSP_STATUS_PLAYING;
@@ -112,13 +164,13 @@ void handle_command(playback_context_t *playback_context, msp_command_t *command
     }
 }
 
-void decode_next_frame(playback_context_t *playback_context) {
+void msp_decode_next_frame(playback_context_t *playback_context) {
     // TODO: implement
     printf("Sleeping!\n");
     sleep(1);
 }
 
-void *playback_thread_func(void *arg) {
+void *msp_playback_thread_func(void *arg) {
     DEFERRED_CLEANUP(msp_free_playback_context)
             // ReSharper disable once CppDFAMemoryLeak
             playback_context_t *playback_context = calloc(1, sizeof(*playback_context));
@@ -151,12 +203,12 @@ void *playback_thread_func(void *arg) {
 
         // Handle other commands
         if (has_command) {
-            handle_command(playback_context, &command);
+            msp_handle_command(playback_context, &command);
         }
 
         // Decode and send next frame to audio device, if needed.
         if (playback_context->status == MSP_STATUS_PLAYING) {
-            decode_next_frame(playback_context);
+            msp_decode_next_frame(playback_context);
         }
     }
 
@@ -164,8 +216,21 @@ void *playback_thread_func(void *arg) {
     return nullptr;
 }
 
+bool exec_command(const msp_command_t command) {
+    if (!msp_q_push(q, command)) {
+        LOG_ERROR(MAIN_THREAD_NAME, "%s command failed: the command q is full!", msp_command_to_str(command.type));
+        return false;
+    }
+    LOG_INFO(MAIN_THREAD_NAME, "%s command sent to playback thread", msp_command_to_str(command.type));
+    return true;
+}
+
+// =====================================================================================================================
+// Public interface functions implementation
+// =====================================================================================================================
+
 int msp_init() {
-    if (pthread_create(&playback_thread, nullptr, playback_thread_func, nullptr) != 0) {
+    if (pthread_create(&playback_thread, nullptr, msp_playback_thread_func, nullptr) != 0) {
         return -1;
     }
     const int err = pthread_detach(playback_thread);
@@ -175,6 +240,10 @@ int msp_init() {
 
     q = calloc(1, sizeof(*q));
     msp_q_init(q);
+
+    if (!msp_init_sdl2()) {
+        return -1;
+    }
 
     return 0;
 }
@@ -186,16 +255,10 @@ void msp_deinit(void) {
     }
     pthread_join(playback_thread, nullptr);
     msp_q_destroy(q);
+
+    msp_deinit_sdl2();
 }
 
-bool exec_command(const msp_command_t command) {
-    if (!msp_q_push(q, command)) {
-        LOG_ERROR(MAIN_THREAD_NAME, "%s command failed: the command q is full!", msp_command_to_str(command.type));
-        return false;
-    }
-    LOG_INFO(MAIN_THREAD_NAME, "%s command sent to playback thread", msp_command_to_str(command.type));
-    return true;
-}
 
 bool msp_play(const char *filename) {
     const msp_command_t command = {
