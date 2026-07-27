@@ -17,9 +17,9 @@ int main() {
     // sleep(1);
     msp_play("/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3");
     // sleep(1);
-    sleep(300);
+    sleep(600);
     msp_play("/mnt/data/Music/Be'lakor/08 The Smoke of Many Fires.m4a");
     // msp_deinit();
-    sleep(300);
+    sleep(900);
     return 0;
 }
