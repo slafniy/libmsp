@@ -31,11 +31,11 @@ RUN ./configure \
     --enable-avformat \
     --enable-avutil \
     --enable-swresample \
-    --enable-decoder=mp3,aac,flac,vorbis,alac \
+    --enable-decoder=mp3,aac,flac,vorbis,opus,alac \
     --enable-demuxer=mp3,mov,flac,ogg \
-    --enable-parser=mpegaudio,aac,flac \
+    --enable-parser=mpegaudio,aac,flac,opus \
     --enable-protocol=file
 
-RUN make -j$(nproc - 1)
+RUN make -j$(nproc)
 
 RUN make install DESTDIR=/install
