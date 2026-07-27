@@ -12,6 +12,11 @@ RUN apk add --no-cache \
     pkgconf \
     zlib-dev
 
+# I can enable ASM with this var, but ffmpeg would not link with my shared libmsp.so.
+# AFAIU that's how ffmpeg asm is written and nothing I can do.
+# But it shouldn't be an issue because I only use it to decode audio
+#ENV ASFLAGS="-DPIC -f elf64"
+
 RUN ./configure \
     --enable-pic \
     --extra-cflags="-fPIC" \
