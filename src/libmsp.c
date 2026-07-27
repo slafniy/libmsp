@@ -5,8 +5,6 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/eventfd.h>
 
 #include "libavformat/avformat.h"
 #include "libavutil/error.h"
@@ -14,9 +12,19 @@
 
 #define DEFERRED_CLEANUP(clean_func) __attribute__((cleanup(clean_func)))
 
+#define LOG_INFO(who, fmt, ...) do { \
+printf("[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
+} while(0)
+
+#define LOG_ERROR(who, fmt, ...) do { \
+fprintf(stderr, "[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
+} while(0)
+
+#define PLAYBACK_THREAD_NAME "libmsp playback"
+#define MAIN_THREAD_NAME "libmsp main"
+
 static pthread_t playback_thread;
-static msp_q_t *q;
-static int q_event;
+static msp_command_q_t *q;
 
 
 static void msp_free_msp_command(msp_command_t **msp_command) {
@@ -51,14 +59,26 @@ static void msp_handle_ffmpeg_error(const char *what, int err) {
 }
 
 void *playback_thread_func(void *arg) {
+
     // DEFERRED_CLEANUP(msp_free_playback_context)
     //         // ReSharper disable once CppDFAMemoryLeak
     //         playback_context_t *playback_context = calloc(1, sizeof(*playback_context));
     // if (!playback_context) return nullptr;
 
     // Playback main loop. Listens commands and executes them.
-    while (1) {
+    while (true) {
+        const msp_command_t command = msp_q_pop(q);
 
+        if (command.type == MSP_EXIT) {
+            LOG_INFO(PLAYBACK_THREAD_NAME, "Exit command received, shutting down");
+            break;
+        }
+
+        switch (command.type) {
+            case MSP_PLAY:
+                LOG_INFO(PLAYBACK_THREAD_NAME, "Playing new file: %s", command.payload.filename);
+                break;
+        }
     }
 
 
@@ -85,42 +105,64 @@ void *playback_thread_func(void *arg) {
 
 int msp_init() {
     if (pthread_create(&playback_thread, nullptr, playback_thread_func, nullptr) != 0) {
-        // ReSharper disable once CppDFAMemoryLeak
         return -1;
     }
     const int err = pthread_detach(playback_thread);
     if (err != 0) {
-        fprintf(stderr, "libmsp: msp_play: pthread_detach() failed with error %s\n", strerror(err));
+        LOG_ERROR(MAIN_THREAD_NAME, "pthread_detach() failed with error %s", strerror(err));
     }
 
     q = calloc(1, sizeof(*q));
     msp_q_init(q);
 
-    q_event = eventfd(0, EFD_CLOEXEC);
-    if (q_event < 0) {
-        perror("eventfd");
-    }
-
-    // ReSharper disable once CppDFAMemoryLeak
     return 0;
 }
 
 void msp_deinit(void) {
+    const msp_command_t exit_cmd = {.type = MSP_EXIT};
+    while (!msp_q_push(q, exit_cmd)) {
+        // to be sure exit command passes. Shouldn't be happening much in the real life
+    }
+    pthread_join(playback_thread, nullptr);
     msp_q_destroy(q);
 }
 
-int msp_play(const char *filename) {
+bool exec_command(const msp_command_t command) {
+    if (!msp_q_push(q, command)) {
+        LOG_ERROR(MAIN_THREAD_NAME, "%s command failed: the command q is full!", msp_command_to_str(command.type));
+        return false;
+    }
+    LOG_INFO(MAIN_THREAD_NAME, "%s command sent to playback thread", msp_command_to_str(command.type));
+    return true;
+}
+
+bool msp_play(const char *filename) {
     const msp_command_t command = {
         .type = MSP_PLAY,
         .payload.filename = strdup(filename)
     };
 
-    if (msp_q_push(q, command)) {
-        constexpr uint64_t one = 1;
-        if (write(q_event, &one, sizeof(one)) != sizeof(one)) {
-            perror("q_event write");
-        }
+    const bool ret = exec_command(command);
+    if (!ret) {
+        free(command.payload.filename);
     }
+    return ret;
+}
 
-    return 0;
+bool msp_stop(void) {
+    const msp_command_t command = {.type = MSP_STOP};
+    return exec_command(command);
+}
+
+bool msp_set_volume(float volume) {
+    const msp_command_t command = {
+        .type = MSP_SET_VOLUME,
+        .payload.volume = volume
+    };
+    return exec_command(command);
+}
+
+bool msp_toggle_pause(void) {
+    const msp_command_t command = {.type = MSP_TOGGLE_PAUSE};
+    return exec_command(command);
 }

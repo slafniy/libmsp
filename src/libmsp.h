@@ -27,11 +27,13 @@ void msp_deinit(void);
 
 
 /// Playback control interface
-int msp_play(const char *filename);
+bool msp_play(const char *filename);
 
-int msp_toggle_pause(void);
+bool msp_toggle_pause(void);
 
-int msp_stop(void);
+bool msp_stop(void);
+
+bool msp_set_volume(float volume);
 
 
 /// Data obtaining interface
