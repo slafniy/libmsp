@@ -27,6 +27,9 @@ fprintf(stderr, "[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
 #define MAIN_THREAD_NAME "libmsp main"
 
 #define SAMPLE_RATE 96000
+#define PLAYBACK_BUFFER_SIZE_SEC 0.5f
+// How long is allowed to wait if playback buffer is already full
+#define SDL_DELAY_MS 5
 
 const SDL_AudioSpec msp_sdl_wanted_spec = {
     .freq = SAMPLE_RATE,
@@ -60,8 +63,10 @@ typedef struct {
 static pthread_t msp_playback_thread; // handles commands and uses ffmpeg libs to open and play files
 static msp_command_q_t *msp_command_q; // queue for commands for playback thread
 static SDL_AudioDeviceID msp_sdl_device_id;
+static uint32_t msp_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
 
-// ReSharper disable once CppDeclaratorNeverUsed - it is used via macro
+// ReSharper disable once CppDeclaratorNeverUsed - it is used via macro.
+// Final de-initialization before application exit.
 static void msp_free_playback_context(playback_context_t **playback_context) {
     if (!playback_context || !*playback_context) return;
     const auto ctx_ptr = *playback_context;
@@ -111,6 +116,13 @@ bool msp_init_sdl2() {
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
         return false;
     }
+
+    // Calculate audio device max allowed queue size
+    const uint32_t bytes_per_sample = SDL_AUDIO_BITSIZE(obtained_spec.format) / 8;
+    const uint32_t bytes_per_frame = obtained_spec.channels * bytes_per_sample;
+    msp_sdl_queue_size_bytes = (uint32_t) (
+        PLAYBACK_BUFFER_SIZE_SEC * (float) obtained_spec.freq * (float) bytes_per_frame);
+
     LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", obtained_spec.freq,
              msp_sdl_format_to_str(obtained_spec.format));
 
@@ -214,10 +226,32 @@ bool msp_open_new_file(playback_context_t *ctx) {
     return true;
 }
 
+// Playback thread function. Clears context, preparing it for the new file
+void msp_clear_playback_context(playback_context_t *ctx) {
+    if (ctx->filename) {
+        free(ctx->filename);
+        ctx->filename = nullptr;
+    }
+    ctx->audio_stream_index = -1;
+    // Close per-file-unique contexts
+    if (ctx->av_format_context) avformat_close_input(&ctx->av_format_context);
+    if (ctx->av_codec_context) avcodec_free_context(&ctx->av_codec_context);
+    if (ctx->swr_context) swr_free(&ctx->swr_context);
+    // Do not free packet and frame, just unref, they could be reused without reallocation
+    if (ctx->av_packet) av_packet_unref(ctx->av_packet);
+    if (ctx->av_frame) av_frame_unref(ctx->av_frame);
+}
+
 // Playback thread function. Determines what thread should do in the next iteration and sets playback_context->status
 void msp_handle_command(playback_context_t *playback_context, const msp_command_t *command) {
     switch (command->type) {
         case MSP_PLAY:
+            // clear audio device
+            SDL_ClearQueuedAudio(msp_sdl_device_id);
+            // clear existing data from context
+            msp_clear_playback_context(playback_context);
+
+            // open new file
             playback_context->filename = strdup(command->payload.filename);
             free(command->payload.filename);
             LOG_INFO(PLAYBACK_THREAD_NAME, "New music file: %s", playback_context->filename);
@@ -250,10 +284,12 @@ void msp_handle_command(playback_context_t *playback_context, const msp_command_
     }
 }
 
+// Playback thread function. Decodes a frame and sends data to SDL2
 void msp_decode_next_frame(playback_context_t *playback_context) {
-    // TODO: implement
-    printf("Sleeping!\n");
-    sleep(1);
+    // do not load CPU too much, keep only small buffer of decoded data
+    if (SDL_GetQueuedAudioSize(msp_sdl_device_id) > msp_sdl_queue_size_bytes) {
+        SDL_Delay(SDL_DELAY_MS);
+    }
 }
 
 void *msp_playback_thread_func(void *arg) {
