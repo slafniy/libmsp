@@ -1,16 +1,18 @@
-FROM alpine:3.21 AS builder
+FROM debian:bookworm-slim AS builder
 
-RUN apk add --no-cache git
+RUN apt-get update && apt-get install -y git
 
 RUN git clone https://git.ffmpeg.org/ffmpeg.git -b release/9.0
 
 WORKDIR /ffmpeg
 
 # ffmpeg build dependencies
-RUN apk add --no-cache \
-    alpine-sdk \
-    pkgconf \
-    zlib-dev
+RUN apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 
 # I can enable ASM with this var, but ffmpeg would not link with my shared libmsp.so.
 # AFAIU that's how ffmpeg asm is written and nothing I can do.
