@@ -324,7 +324,8 @@ void msp_decode_next_frame(playback_context_t *ctx) {
             ret = avcodec_receive_frame(ctx->av_codec_context, ctx->av_frame);
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
                 break; // not enough packets or EOF reached
-            } else if (ret < 0) {
+            }
+            if (ret < 0) {
                 msp_handle_ffmpeg_error("avcodec_receive_frame", ret);
                 break;
             }
@@ -339,10 +340,10 @@ void msp_decode_next_frame(playback_context_t *ctx) {
 
             // Allocate intermediate buffer
             uint8_t *out_buffer = nullptr;
-            int out_linesize = 0;
+            int out_line_size = 0;
             ret = av_samples_alloc(
                 &out_buffer,
-                &out_linesize,
+                &out_line_size,
                 msp_obtained_spec.channels,
                 (int) max_dst_nb_samples,
                 msp_av_sample_format,
@@ -359,7 +360,9 @@ void msp_decode_next_frame(playback_context_t *ctx) {
                 ctx->swr_context,
                 &out_buffer,
                 (int) max_dst_nb_samples,
-                (const uint8_t **) ctx->av_frame->data,
+                // ReSharper disable once CppRedundantCastExpression
+                // ffmpeg API expects const uint8_t *const *, AVFrame::data is uint8_t *[]
+                (const uint8_t * const *) ctx->av_frame->data,
                 ctx->av_frame->nb_samples
             );
 
@@ -379,7 +382,7 @@ void msp_decode_next_frame(playback_context_t *ctx) {
     av_packet_unref(ctx->av_packet);
 }
 
-void *msp_playback_thread_func(void *arg) {
+void *msp_playback_thread_func(void *_) {
     DEFERRED_CLEANUP(msp_free_playback_context)
             // ReSharper disable once CppDFAMemoryLeak
             playback_context_t *playback_context = calloc(1, sizeof(*playback_context));
