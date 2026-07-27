@@ -355,7 +355,7 @@ void msp_decode_next_frame(playback_context_t *ctx) {
             }
 
             // Resample!
-            int dst_nb_samples = swr_convert(
+            const int dst_nb_samples = swr_convert(
                 ctx->swr_context,
                 &out_buffer,
                 (int) max_dst_nb_samples,
@@ -364,7 +364,10 @@ void msp_decode_next_frame(playback_context_t *ctx) {
             );
 
             if (dst_nb_samples > 0) {
-                const int buffer_size = dst_nb_samples * msp_obtained_spec.channels * sizeof(float);
+                const uint32_t bytes_per_sample = (uint32_t) SDL_AUDIO_BITSIZE(msp_obtained_spec.format) / 8U;
+                const uint32_t bytes_per_frame = (uint32_t) msp_obtained_spec.channels * bytes_per_sample;
+                const uint32_t buffer_size = (uint32_t) dst_nb_samples * bytes_per_frame;
+
                 SDL_QueueAudio(msp_sdl_device_id, out_buffer, buffer_size);
             }
 
