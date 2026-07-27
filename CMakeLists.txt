@@ -4,7 +4,21 @@ project(libmsp C)
 set(CMAKE_C_STANDARD 23)
 set(BUILD_SHARED_LIBS OFF)
 
-find_package(SDL2 REQUIRED)
+include(FetchContent)
+
+# black magic
+FetchContent_Declare(
+        SDL2
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+        GIT_TAG        release-2.30.0
+)
+
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(SDL2)
 
 # The main output - single shared library
 add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c
@@ -25,7 +39,9 @@ target_link_libraries(libmsp PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-static/lib/libswresample.a
         ${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg-static/lib/libavutil.a
         m
-        SDL2::SDL2
+        pthread
+        dl
+        SDL2::SDL2-static
 )
 
 # Executable app sample to demonstrate how library works
