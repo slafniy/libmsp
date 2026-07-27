@@ -64,6 +64,7 @@ static pthread_t msp_playback_thread; // handles commands and uses ffmpeg libs t
 static msp_command_q_t *msp_command_q; // queue for commands for playback thread
 static SDL_AudioDeviceID msp_sdl_device_id;
 static uint32_t msp_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
+static SDL_AudioSpec msp_obtained_spec; // to store real SDL specs
 
 // ReSharper disable once CppDeclaratorNeverUsed - it is used via macro.
 // Final de-initialization before application exit.
@@ -109,8 +110,7 @@ bool msp_init_sdl2() {
         return false;
     }
 
-    SDL_AudioSpec obtained_spec;
-    msp_sdl_device_id = SDL_OpenAudioDevice(nullptr, 0, &msp_sdl_wanted_spec, &obtained_spec, 0);
+    msp_sdl_device_id = SDL_OpenAudioDevice(nullptr, 0, &msp_sdl_wanted_spec, &msp_obtained_spec, 0);
     if (msp_sdl_device_id == 0) {
         LOG_ERROR(MAIN_THREAD_NAME, "Failed to open audio device: %s", SDL_GetError());
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
@@ -118,13 +118,13 @@ bool msp_init_sdl2() {
     }
 
     // Calculate audio device max allowed queue size
-    const uint32_t bytes_per_sample = SDL_AUDIO_BITSIZE(obtained_spec.format) / 8;
-    const uint32_t bytes_per_frame = obtained_spec.channels * bytes_per_sample;
+    const uint32_t bytes_per_sample = SDL_AUDIO_BITSIZE(msp_obtained_spec.format) / 8;
+    const uint32_t bytes_per_frame = msp_obtained_spec.channels * bytes_per_sample;
     msp_sdl_queue_size_bytes = (uint32_t) (
-        PLAYBACK_BUFFER_SIZE_SEC * (float) obtained_spec.freq * (float) bytes_per_frame);
+        PLAYBACK_BUFFER_SIZE_SEC * (float) msp_obtained_spec.freq * (float) bytes_per_frame);
 
-    LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", obtained_spec.freq,
-             msp_sdl_format_to_str(obtained_spec.format));
+    LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", msp_obtained_spec.freq,
+             msp_sdl_format_to_str(msp_obtained_spec.format));
 
     SDL_PauseAudioDevice(msp_sdl_device_id, 0); // unpause because it's paused by default
     return true;
@@ -285,11 +285,95 @@ void msp_handle_command(playback_context_t *playback_context, const msp_command_
 }
 
 // Playback thread function. Decodes a frame and sends data to SDL2
-void msp_decode_next_frame(playback_context_t *playback_context) {
+void msp_decode_next_frame(playback_context_t *ctx) {
     // do not load CPU too much, keep only small buffer of decoded data
     if (SDL_GetQueuedAudioSize(msp_sdl_device_id) > msp_sdl_queue_size_bytes) {
         SDL_Delay(SDL_DELAY_MS);
     }
+
+    // Read the next frame
+    int ret = av_read_frame(ctx->av_format_context, ctx->av_packet);
+    if (ret < 0) {
+        // something happened
+        if (ret == AVERROR_EOF) {
+            // End of file! Flushing decoder
+            avcodec_send_packet(ctx->av_codec_context, nullptr);
+
+            // Stop playback if all frames played and SDL q is empty
+            if (SDL_GetQueuedAudioSize(msp_sdl_device_id) == 0) {
+                LOG_INFO(PLAYBACK_THREAD_NAME, "Playback finished (EOF)");
+                ctx->status = MSP_STATUS_IDLE;
+            }
+        } else {
+            // something bad happened
+            msp_handle_ffmpeg_error("av_read_frame", ret);
+        }
+        av_packet_unref(ctx->av_packet);
+        return;
+    }
+
+    if (ctx->av_packet->stream_index == ctx->audio_stream_index) {
+        // Decode!
+        ret = avcodec_send_packet(ctx->av_codec_context, ctx->av_packet);
+        if (ret < 0 && ret != AVERROR(EAGAIN)) {
+            msp_handle_ffmpeg_error("avcodec_send_packet", ret);
+        }
+
+        // Get decoded frames
+        while (ret >= 0) {
+            ret = avcodec_receive_frame(ctx->av_codec_context, ctx->av_frame);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break; // not enough packets or EOF reached
+            } else if (ret < 0) {
+                msp_handle_ffmpeg_error("avcodec_receive_frame", ret);
+                break;
+            }
+
+            // Calculate buffer size, another ffmpeg magic
+            const int64_t max_dst_nb_samples = av_rescale_rnd(
+                swr_get_delay(ctx->swr_context, ctx->av_codec_context->sample_rate) + ctx->av_frame->nb_samples,
+                msp_obtained_spec.freq,
+                ctx->av_codec_context->sample_rate,
+                AV_ROUND_UP
+            );
+
+            // Allocate intermediate buffer
+            uint8_t *out_buffer = nullptr;
+            int out_linesize = 0;
+            ret = av_samples_alloc(
+                &out_buffer,
+                &out_linesize,
+                msp_obtained_spec.channels,
+                (int) max_dst_nb_samples,
+                msp_av_sample_format,
+                0
+            );
+
+            if (ret < 0) {
+                LOG_ERROR(PLAYBACK_THREAD_NAME, "Failed to allocate audio samples buffer");
+                av_frame_unref(ctx->av_frame);
+            }
+
+            // Resample!
+            int dst_nb_samples = swr_convert(
+                ctx->swr_context,
+                &out_buffer,
+                (int) max_dst_nb_samples,
+                (const uint8_t **) ctx->av_frame->data,
+                ctx->av_frame->nb_samples
+            );
+
+            if (dst_nb_samples > 0) {
+                const int buffer_size = dst_nb_samples * msp_obtained_spec.channels * sizeof(float);
+                SDL_QueueAudio(msp_sdl_device_id, out_buffer, buffer_size);
+            }
+
+            av_freep(&out_buffer);
+            av_frame_unref(ctx->av_frame);
+        }
+    }
+
+    av_packet_unref(ctx->av_packet);
 }
 
 void *msp_playback_thread_func(void *arg) {
