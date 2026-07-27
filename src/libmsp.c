@@ -39,9 +39,9 @@ typedef struct {
 //======================================================================================================================
 // Global variables
 //======================================================================================================================
-static pthread_t playback_thread; // handles commands and uses ffmpeg libs to open and play files
-static msp_command_q_t *q; // queue for commands for playback thread
-static SDL_AudioDeviceID sdl_device_id;
+static pthread_t msp_playback_thread; // handles commands and uses ffmpeg libs to open and play files
+static msp_command_q_t *msp_command_q; // queue for commands for playback thread
+static SDL_AudioDeviceID msp_sdl_device_id;
 
 // ReSharper disable once CppDeclaratorNeverUsed - uses via macro
 static void msp_free_playback_context(playback_context_t **playback_context) {
@@ -90,8 +90,8 @@ bool msp_init_sdl2() {
         .callback = nullptr
     };
     SDL_AudioSpec obtained_spec;
-    sdl_device_id = SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &obtained_spec, 0);
-    if (sdl_device_id == 0) {
+    msp_sdl_device_id = SDL_OpenAudioDevice(nullptr, 0, &wanted_spec, &obtained_spec, 0);
+    if (msp_sdl_device_id == 0) {
         LOG_ERROR(MAIN_THREAD_NAME, "Failed to open audio device: %s", SDL_GetError());
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
         return false;
@@ -99,11 +99,20 @@ bool msp_init_sdl2() {
     LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", obtained_spec.freq,
              msp_sdl_format_to_str(obtained_spec.format));
 
-    SDL_PauseAudioDevice(sdl_device_id, 0); // unpause because it's paused by default
+    SDL_PauseAudioDevice(msp_sdl_device_id, 0); // unpause because it's paused by default
     return true;
 }
 
 void msp_deinit_sdl2() {
+    SDL_PauseAudioDevice(msp_sdl_device_id, 1);
+    SDL_ClearQueuedAudio(msp_sdl_device_id);
+
+    if (msp_sdl_device_id != 0) {
+        SDL_CloseAudioDevice(msp_sdl_device_id);
+        msp_sdl_device_id = 0;
+    }
+
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
 // Playback thread function
@@ -188,10 +197,10 @@ void *msp_playback_thread_func(void *arg) {
 
         // If playing - quickly check if we got a new command and not pause decoding
         if (playback_context->status == MSP_STATUS_PLAYING) {
-            has_command = msp_q_try_pop(q, &command);
+            has_command = msp_q_try_pop(msp_command_q, &command);
         } else {
             // if not playing - just wait for a command
-            msp_q_pop(q, &command);
+            msp_q_pop(msp_command_q, &command);
             has_command = true;
         }
 
@@ -217,7 +226,7 @@ void *msp_playback_thread_func(void *arg) {
 }
 
 bool exec_command(const msp_command_t command) {
-    if (!msp_q_push(q, command)) {
+    if (!msp_q_push(msp_command_q, command)) {
         LOG_ERROR(MAIN_THREAD_NAME, "%s command failed: the command q is full!", msp_command_to_str(command.type));
         return false;
     }
@@ -230,16 +239,16 @@ bool exec_command(const msp_command_t command) {
 // =====================================================================================================================
 
 int msp_init() {
-    if (pthread_create(&playback_thread, nullptr, msp_playback_thread_func, nullptr) != 0) {
+    if (pthread_create(&msp_playback_thread, nullptr, msp_playback_thread_func, nullptr) != 0) {
         return -1;
     }
-    const int err = pthread_detach(playback_thread);
+    const int err = pthread_detach(msp_playback_thread);
     if (err != 0) {
         LOG_ERROR(MAIN_THREAD_NAME, "pthread_detach() failed with error %s", strerror(err));
     }
 
-    q = calloc(1, sizeof(*q));
-    msp_q_init(q);
+    msp_command_q = calloc(1, sizeof(*msp_command_q));
+    msp_q_init(msp_command_q);
 
     if (!msp_init_sdl2()) {
         return -1;
@@ -250,11 +259,11 @@ int msp_init() {
 
 void msp_deinit(void) {
     const msp_command_t exit_cmd = {.type = MSP_EXIT};
-    while (!msp_q_push(q, exit_cmd)) {
+    while (!msp_q_push(msp_command_q, exit_cmd)) {
         // to be sure exit command passes. Shouldn't be happening much in the real life
     }
-    pthread_join(playback_thread, nullptr);
-    msp_q_destroy(q);
+    pthread_join(msp_playback_thread, nullptr);
+    msp_q_destroy(msp_command_q);
 
     msp_deinit_sdl2();
 }
