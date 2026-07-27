@@ -59,4 +59,6 @@ void msp_q_destroy(msp_command_q_t *q);
 
 bool msp_q_push(msp_command_q_t *q, msp_command_t command);
 
-msp_command_t msp_q_pop(msp_command_q_t *q);
+void msp_q_pop(msp_command_q_t *q, msp_command_t *out_command);
+
+bool msp_q_try_pop(msp_command_q_t *q, msp_command_t *out_command);

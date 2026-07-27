@@ -33,19 +33,36 @@ bool msp_q_push(msp_command_q_t *q, const msp_command_t command) {
     return true;
 }
 
-msp_command_t msp_q_pop(msp_command_q_t *q) {
+// Blocks until something appears
+void msp_q_pop(msp_command_q_t *q, msp_command_t *out_command) {
     pthread_mutex_lock(&q->mutex);
 
     while (q->count == 0) {
         pthread_cond_wait(&q->cond, &q->mutex);
     }
 
-    const msp_command_t command = q->data[q->head];
+    *out_command = q->data[q->head];
     q->head = (q->head + 1) % MSP_Q_SIZE;
     q->count--;
 
     pthread_mutex_unlock(&q->mutex);
-    return command;
+}
+
+// Instant result
+bool msp_q_try_pop(msp_command_q_t *q, msp_command_t *out_command) {
+    pthread_mutex_lock(&q->mutex);
+
+    if (q->count == 0) {
+        pthread_mutex_unlock(&q->mutex);
+        return false;
+    }
+
+    *out_command = q->data[q->head];
+    q->head = (q->head + 1) % MSP_Q_SIZE;
+    q->count--;
+
+    pthread_mutex_unlock(&q->mutex);
+    return true;
 }
 
 

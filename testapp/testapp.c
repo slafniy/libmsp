@@ -4,11 +4,14 @@
 
 int main() {
     msp_init();
+    msp_play("../testapp/non-existing.ogg");
+    msp_play("../testapp/testapp.c");  // existing but wrong format
     msp_play("../testapp/test.ogg");
     msp_toggle_pause();
     msp_set_volume(0.75f);
     msp_toggle_pause();
     msp_set_position(5431);
+    sleep(2);
     msp_stop();
     sleep(1);
     msp_deinit();

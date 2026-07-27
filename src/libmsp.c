@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "libavformat/avformat.h"
 #include "libavutil/error.h"
@@ -24,13 +25,14 @@ fprintf(stderr, "[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
 #define MAIN_THREAD_NAME "libmsp main"
 
 static pthread_t playback_thread; // handles commands and uses ffmpeg libs to open and play files
-static msp_command_q_t *q;  // queue for commands for playback thread
+static msp_command_q_t *q; // queue for commands for playback thread
 
 
 typedef struct {
     char *filename;
     AVFormatContext *av_format_context;
     AVCodecContext *av_codec_context;
+    msp_status_t status;
 } playback_context_t;
 
 
@@ -69,8 +71,51 @@ bool open_new_file(playback_context_t *playback_context) {
     }
 
     LOG_INFO(PLAYBACK_THREAD_NAME,
-        "Container <%s> is found in %s", playback_context->av_format_context->iformat->name, playback_context->filename);
+             "Container <%s> is found in %s", playback_context->av_format_context->iformat->name,
+             playback_context->filename);
     return true;
+}
+
+// Playback thread function. Determines what thread should do in the next iteration
+void handle_command(playback_context_t *playback_context, msp_command_t *command) {
+    switch (command->type) {
+        case MSP_PLAY:
+            playback_context->filename = strdup(command->payload.filename);
+            free(command->payload.filename);
+            LOG_INFO(PLAYBACK_THREAD_NAME, "New music file: %s", playback_context->filename);
+            if (!open_new_file(playback_context)) {
+                LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot play %s", playback_context->filename);
+            }
+            playback_context->status = MSP_STATUS_PLAYING;
+            break;
+        case MSP_STOP:
+            playback_context->status = MSP_STATUS_IDLE;
+            LOG_INFO(PLAYBACK_THREAD_NAME, "Stopping current playback");
+            break;
+        case MSP_TOGGLE_PAUSE:
+            if (playback_context->status == MSP_STATUS_PLAYING) {
+                playback_context->status = MSP_STATUS_PAUSED;
+            } else if (playback_context->status == MSP_STATUS_PAUSED) {
+                playback_context->status = MSP_STATUS_PLAYING;
+            }
+            LOG_INFO(PLAYBACK_THREAD_NAME, "Toggling pause");
+            break;
+        case MSP_SET_VOLUME:
+            LOG_INFO(PLAYBACK_THREAD_NAME, "Setting volume to %f", command->payload.volume);
+            break;
+        case MSP_SET_POSITION:
+            LOG_INFO(PLAYBACK_THREAD_NAME, "Setting playback position to %i ms", command->payload.position_ms);
+            break;
+        default:
+            LOG_ERROR(PLAYBACK_THREAD_NAME, "Unknown command type received: %i", command->type);
+            break;
+    }
+}
+
+void decode_next_frame(playback_context_t *playback_context) {
+    // TODO: implement
+    printf("Sleeping!\n");
+    sleep(1);
 }
 
 void *playback_thread_func(void *arg) {
@@ -82,37 +127,36 @@ void *playback_thread_func(void *arg) {
         return nullptr;
     }
 
-    // Playback main loop. Listens commands and executes them.
-    while (true) {
-        const msp_command_t command = msp_q_pop(q);
+    playback_context->status = MSP_STATUS_IDLE;
 
-        if (command.type == MSP_EXIT) {
+    // Playback main loop. Listens commands and executes them, and decodes frames if needed
+    while (true) {
+        msp_command_t command;
+        bool has_command = false;
+
+        // If playing - quickly check if we got a new command and not pause decoding
+        if (playback_context->status == MSP_STATUS_PLAYING) {
+            has_command = msp_q_try_pop(q, &command);
+        } else {
+            // if not playing - just wait for a command
+            msp_q_pop(q, &command);
+            has_command = true;
+        }
+
+        // Exit requested case - breaks playback loop, which causes resource freeing
+        if (has_command && command.type == MSP_EXIT) {
             LOG_INFO(PLAYBACK_THREAD_NAME, "Exit command received, shutting down");
             break;
         }
 
-        switch (command.type) {
-            case MSP_PLAY:
-                playback_context->filename = strdup(command.payload.filename);
-                free(command.payload.filename);
-                LOG_INFO(PLAYBACK_THREAD_NAME, "New music file: %s", playback_context->filename);
-                open_new_file(playback_context);
-                break;
-            case MSP_STOP:
-                LOG_INFO(PLAYBACK_THREAD_NAME, "Stopping current playback");
-                break;
-            case MSP_TOGGLE_PAUSE:
-                LOG_INFO(PLAYBACK_THREAD_NAME, "Toggling pause");
-                break;
-            case MSP_SET_VOLUME:
-                LOG_INFO(PLAYBACK_THREAD_NAME, "Setting volume to %f", command.payload.volume);
-                break;
-            case MSP_SET_POSITION:
-                LOG_INFO(PLAYBACK_THREAD_NAME, "Setting playback position to %i ms", command.payload.position_ms);
-                break;
-            default:
-                LOG_ERROR(PLAYBACK_THREAD_NAME, "Unknown command type received: %i", command.type);
-                break;
+        // Handle other commands
+        if (has_command) {
+            handle_command(playback_context, &command);
+        }
+
+        // Decode and send next frame to audio device, if needed.
+        if (playback_context->status == MSP_STATUS_PLAYING) {
+            decode_next_frame(playback_context);
         }
     }
 
