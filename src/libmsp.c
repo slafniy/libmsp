@@ -27,14 +27,6 @@ static pthread_t playback_thread;
 static msp_command_q_t *q;
 
 
-static void msp_free_msp_command(msp_command_t **msp_command) {
-    if (!msp_command || !*msp_command) return;
-    if ((*msp_command)->payload.filename) {
-        free((*msp_command)->payload.filename);
-    }
-    *msp_command = nullptr;
-}
-
 typedef struct {
     char *filename;
     AVFormatContext *av_format_context;
@@ -60,6 +52,27 @@ static void msp_handle_ffmpeg_error(const char *what, int err) {
     fprintf(stderr, "libmsp: %s error: %s\n", what, buf);
 }
 
+// Playback thread function
+bool open_new_file(playback_context_t *playback_context) {
+    int ret = avformat_open_input(&playback_context->av_format_context, playback_context->filename, nullptr, nullptr);
+    if (ret < 0) {
+        msp_handle_ffmpeg_error("avformat_open_input", ret);
+        LOG_ERROR(PLAYBACK_THREAD_NAME, "ffmpeg cannot open %s", playback_context->filename);
+        return false;
+    }
+
+    ret = avformat_find_stream_info(playback_context->av_format_context, nullptr);
+    if (ret < 0) {
+        msp_handle_ffmpeg_error("avformat_find_stream_info", ret);
+        LOG_ERROR(PLAYBACK_THREAD_NAME, "ffmpeg cannot find stream info in file %s", playback_context->filename);
+        return false;
+    }
+
+    LOG_INFO(PLAYBACK_THREAD_NAME,
+        "Container <%s> is found in %s", playback_context->av_format_context->iformat->name, playback_context->filename);
+    return true;
+}
+
 void *playback_thread_func(void *arg) {
     DEFERRED_CLEANUP(msp_free_playback_context)
             // ReSharper disable once CppDFAMemoryLeak
@@ -80,7 +93,10 @@ void *playback_thread_func(void *arg) {
 
         switch (command.type) {
             case MSP_PLAY:
-                LOG_INFO(PLAYBACK_THREAD_NAME, "Playing new file: %s", command.payload.filename);
+                playback_context->filename = strdup(command.payload.filename);
+                free(command.payload.filename);
+                LOG_INFO(PLAYBACK_THREAD_NAME, "New music file: %s", playback_context->filename);
+                open_new_file(playback_context);
                 break;
             case MSP_STOP:
                 LOG_INFO(PLAYBACK_THREAD_NAME, "Stopping current playback");
@@ -100,25 +116,6 @@ void *playback_thread_func(void *arg) {
         }
     }
 
-
-    // printf("Playing: %s\n", playback_args->filename);
-
-    // int ret = avformat_open_input(&playback_context->av_format_context, playback_args->filename, nullptr, nullptr);
-    // if (ret < 0) {
-    //     msp_handle_ffmpeg_error("avformat_open_input", ret);
-    //     // ReSharper disable once CppDFAMemoryLeak
-    //     return nullptr;
-    // }
-    //
-    // ret = avformat_find_stream_info(playback_context->av_format_context, nullptr);
-    // if (ret < 0) {
-    //     msp_handle_ffmpeg_error("avformat_find_stream_info", ret);
-    //     // ReSharper disable once CppDFAMemoryLeak
-    //     return nullptr;
-    // }
-    //
-    // printf("Container: %s\n", playback_context->av_format_context->iformat->name);
-    // // ReSharper disable once CppDFAMemoryLeak
     return nullptr;
 }
 
