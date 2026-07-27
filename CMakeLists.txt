@@ -8,17 +8,32 @@ include(FetchContent)
 
 # black magic
 FetchContent_Declare(
-        SDL2
+        SDL3
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-        GIT_TAG        release-2.30.0
+        GIT_TAG        release-3.4.12
 )
+
+set(SDL_UNIX_CONSOLE_BUILD ON CACHE BOOL "" FORCE)
+set(SDL_UNSUPPORTED ON CACHE BOOL "" FORCE)
+
+set(SDL_VIDEO OFF CACHE BOOL "" FORCE)
+set(SDL_RENDER OFF CACHE BOOL "" FORCE)
+set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
+set(SDL_JOYSTICK OFF CACHE BOOL "" FORCE)
+set(SDL_HAPTIC OFF CACHE BOOL "" FORCE)
+set(SDL_HIDAPI OFF CACHE BOOL "" FORCE)
+set(SDL_POWER OFF CACHE BOOL "" FORCE)
+set(SDL_SENSOR OFF CACHE BOOL "" FORCE)
+set(SDL_DIALOG OFF CACHE BOOL "" FORCE)
+
+set(SDL_AUDIO ON CACHE BOOL "" FORCE)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(SDL2)
+FetchContent_MakeAvailable(SDL3)
 
 # The main output - single shared library
 add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c
@@ -41,7 +56,7 @@ target_link_libraries(libmsp PRIVATE
         m
         pthread
         dl
-        SDL2::SDL2-static
+        SDL3::SDL3-static
 )
 
 # Executable app sample to demonstrate how library works
