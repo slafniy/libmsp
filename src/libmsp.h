@@ -19,6 +19,9 @@ typedef struct {
     int bitrate;
 } msp_track_meta_t;
 
+// =====================================================================================================================
+// Init and de-init functions.
+// =====================================================================================================================
 // Creates playback thread and it's context. Should be called before any other function.
 int msp_init(void);
 
@@ -26,7 +29,10 @@ int msp_init(void);
 void msp_deinit(void);
 
 
-/// Playback control interface
+// =====================================================================================================================
+// Playback control interface
+// All functions are non-blocking and only send commands to the background playback thread
+// =====================================================================================================================
 bool msp_play(const char *filename);
 
 bool msp_toggle_pause(void);
@@ -37,12 +43,14 @@ bool msp_set_volume(float volume);
 
 bool msp_set_position(int position_ms);
 
-
-/// Data obtaining interface
+// =====================================================================================================================
+// Data obtaining interface
+// =====================================================================================================================
 msp_status_t msp_get_status(void);
 
 int msp_get_position_sec(void);
 
 int msp_get_metadata(msp_track_meta_t *out_meta);
 
-void msp_free_metadata(msp_track_meta_t *meta);  // to free memory
+void msp_free_metadata(msp_track_meta_t *meta); // to free memory
+// =====================================================================================================================

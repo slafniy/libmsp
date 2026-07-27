@@ -23,8 +23,8 @@ fprintf(stderr, "[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
 #define PLAYBACK_THREAD_NAME "libmsp playback"
 #define MAIN_THREAD_NAME "libmsp main"
 
-static pthread_t playback_thread;
-static msp_command_q_t *q;
+static pthread_t playback_thread; // handles commands and uses ffmpeg libs to open and play files
+static msp_command_q_t *q;  // queue for commands for playback thread
 
 
 typedef struct {
@@ -116,6 +116,7 @@ void *playback_thread_func(void *arg) {
         }
     }
 
+    // ReSharper disable once CppDFAMemoryLeak - DEFERRED_CLEANUP macro should do the job
     return nullptr;
 }
 
