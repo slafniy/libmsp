@@ -6,6 +6,8 @@ int main() {
     msp_init();
     // msp_play("../testapp/non-existing.ogg");
     // msp_play("../testapp/testapp.c");  // existing but wrong format
+    msp_set_volume(0.7f);
+    msp_set_volume(1.7f);
     msp_play("../testapp/test.ogg");
     sleep(1);
     // msp_toggle_pause();
