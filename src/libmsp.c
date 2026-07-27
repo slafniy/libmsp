@@ -36,6 +36,7 @@ static void msp_free_msp_command(msp_command_t **msp_command) {
 }
 
 typedef struct {
+    char *filename;
     AVFormatContext *av_format_context;
     AVCodecContext *av_codec_context;
 } playback_context_t;
@@ -45,6 +46,7 @@ typedef struct {
 static void msp_free_playback_context(playback_context_t **playback_context) {
     if (!playback_context || !*playback_context) return;
     const auto ctx_ptr = *playback_context;
+    if (ctx_ptr->filename) free(ctx_ptr->filename);
     if (ctx_ptr->av_format_context) avformat_close_input(&ctx_ptr->av_format_context); // also sets it to NULL
     if (ctx_ptr->av_codec_context) avcodec_free_context(&ctx_ptr->av_codec_context); // also sets it to NULL
     free(ctx_ptr);
@@ -59,11 +61,13 @@ static void msp_handle_ffmpeg_error(const char *what, int err) {
 }
 
 void *playback_thread_func(void *arg) {
-
-    // DEFERRED_CLEANUP(msp_free_playback_context)
-    //         // ReSharper disable once CppDFAMemoryLeak
-    //         playback_context_t *playback_context = calloc(1, sizeof(*playback_context));
-    // if (!playback_context) return nullptr;
+    DEFERRED_CLEANUP(msp_free_playback_context)
+            // ReSharper disable once CppDFAMemoryLeak
+            playback_context_t *playback_context = calloc(1, sizeof(*playback_context));
+    if (!playback_context) {
+        LOG_ERROR(PLAYBACK_THREAD_NAME, "Failed to create playback context");
+        return nullptr;
+    }
 
     // Playback main loop. Listens commands and executes them.
     while (true) {
@@ -77,6 +81,21 @@ void *playback_thread_func(void *arg) {
         switch (command.type) {
             case MSP_PLAY:
                 LOG_INFO(PLAYBACK_THREAD_NAME, "Playing new file: %s", command.payload.filename);
+                break;
+            case MSP_STOP:
+                LOG_INFO(PLAYBACK_THREAD_NAME, "Stopping current playback");
+                break;
+            case MSP_TOGGLE_PAUSE:
+                LOG_INFO(PLAYBACK_THREAD_NAME, "Toggling pause");
+                break;
+            case MSP_SET_VOLUME:
+                LOG_INFO(PLAYBACK_THREAD_NAME, "Setting volume to %f", command.payload.volume);
+                break;
+            case MSP_SET_POSITION:
+                LOG_INFO(PLAYBACK_THREAD_NAME, "Setting playback position to %i ms", command.payload.position_ms);
+                break;
+            default:
+                LOG_ERROR(PLAYBACK_THREAD_NAME, "Unknown command type received: %i", command.type);
                 break;
         }
     }
@@ -154,10 +173,18 @@ bool msp_stop(void) {
     return exec_command(command);
 }
 
-bool msp_set_volume(float volume) {
+bool msp_set_volume(const float volume) {
     const msp_command_t command = {
         .type = MSP_SET_VOLUME,
         .payload.volume = volume
+    };
+    return exec_command(command);
+}
+
+bool msp_set_position(const int position_ms) {
+    const msp_command_t command = {
+        .type = MSP_SET_POSITION,
+        .payload.position_ms = position_ms
     };
     return exec_command(command);
 }

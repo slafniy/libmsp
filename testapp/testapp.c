@@ -8,6 +8,7 @@ int main() {
     msp_toggle_pause();
     msp_set_volume(0.75f);
     msp_toggle_pause();
+    msp_set_position(5431);
     msp_stop();
     sleep(1);
     msp_deinit();
