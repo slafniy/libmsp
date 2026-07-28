@@ -23,24 +23,23 @@ printf("[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
 fprintf(stderr, "[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
 } while(0)
 
-#define PLAYBACK_THREAD_NAME "libmsp playback"
-#define MAIN_THREAD_NAME "libmsp main"
+//======================================================================================================================
+// Global constants
+//======================================================================================================================
+static constexpr char PLAYBACK_THREAD_NAME[] = "libmsp playback";
+static constexpr char MAIN_THREAD_NAME[] = "libmsp main";
 
-#define SAMPLE_RATE 96000
-#define SDL_FORMAT SDL_AUDIO_F32
-#define PLAYBACK_BUFFER_SIZE_SEC 0.5f
-// How long is allowed to wait if playback buffer is already full
-#define SDL_DELAY_MS 5
+// Params of SDL audio output
+static constexpr int SAMPLE_RATE = 96000;
+static constexpr int AUDIO_OUT_FORMAT = SDL_AUDIO_F32;
+static constexpr SDL_AudioSpec AUDIO_OUT_SPEC = {.freq = SAMPLE_RATE, .format = AUDIO_OUT_FORMAT, .channels = 2};
+static constexpr AVChannelLayout CHANNEL_LAYOUT = AV_CHANNEL_LAYOUT_STEREO; // should match msp_sdl_wanted_spec!
+static constexpr auto SAMPLE_FORMAT = AV_SAMPLE_FMT_FLT; // this is for float in sdl2
 
-const SDL_AudioSpec msp_sdl_wanted_spec = {
-    .freq = SAMPLE_RATE,
-    .format = SDL_FORMAT,
-    .channels = 2
-};
+static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.5f;
+static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait if playback buffer is already full
 
-// should match msp_sdl_wanted_spec!
-const AVChannelLayout msp_av_channel_layout = AV_CHANNEL_LAYOUT_STEREO;
-constexpr auto msp_av_sample_format = AV_SAMPLE_FMT_FLT; // this is for float in sdl2
+//======================================================================================================================
 
 typedef struct {
     // libmsp specific data
@@ -129,7 +128,7 @@ bool msp_init_sdl3() {
 
     msp_sdl_stream = SDL_OpenAudioDeviceStream(
         SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
-        &msp_sdl_wanted_spec,
+        &AUDIO_OUT_SPEC,
         nullptr,
         nullptr);
 
@@ -140,13 +139,13 @@ bool msp_init_sdl3() {
     }
 
     // Calculate audio device max allowed queue size
-    const uint32_t bytes_per_sample = SDL_AUDIO_BYTESIZE(msp_sdl_wanted_spec.format);
-    const uint32_t bytes_per_frame = msp_sdl_wanted_spec.channels * bytes_per_sample;
+    const uint32_t bytes_per_sample = SDL_AUDIO_BYTESIZE(AUDIO_OUT_SPEC.format);
+    const uint32_t bytes_per_frame = AUDIO_OUT_SPEC.channels * bytes_per_sample;
     msp_sdl_queue_size_bytes = (uint32_t) (
-        PLAYBACK_BUFFER_SIZE_SEC * (float) msp_sdl_wanted_spec.freq * (float) bytes_per_frame);
+        PLAYBACK_BUFFER_SIZE_SEC * (float) AUDIO_OUT_SPEC.freq * (float) bytes_per_frame);
 
-    LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", msp_sdl_wanted_spec.freq,
-             SDL_GetAudioFormatName(msp_sdl_wanted_spec.format));
+    LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", AUDIO_OUT_SPEC.freq,
+             SDL_GetAudioFormatName(AUDIO_OUT_SPEC.format));
 
     SDL_ResumeAudioStreamDevice(msp_sdl_stream); // unpause because it's paused by default
     return true;
@@ -223,8 +222,8 @@ bool msp_open_new_file(playback_context_t *ctx) {
     // Prepare resampler
     ret = swr_alloc_set_opts2(
         &ctx->swr_context,
-        &msp_av_channel_layout,
-        msp_av_sample_format,
+        &CHANNEL_LAYOUT,
+        SAMPLE_FORMAT,
         SAMPLE_RATE,
         &ctx->av_codec_context->ch_layout,
         ctx->av_codec_context->sample_fmt,
@@ -315,7 +314,7 @@ void msp_handle_command(playback_context_t *playback_context, const msp_command_
 void msp_decode_next_frame(playback_context_t *ctx) {
     // do not load CPU too much, keep only small buffer of decoded data
     if (SDL_GetAudioStreamQueued(msp_sdl_stream) > msp_sdl_queue_size_bytes) {
-        SDL_Delay(SDL_DELAY_MS);
+        SDL_Delay(ALLOWED_AUDIO_DELAY_MS);
     }
 
     // Read the next frame
@@ -360,7 +359,7 @@ void msp_decode_next_frame(playback_context_t *ctx) {
             // Calculate buffer size, another ffmpeg magic
             const int64_t max_dst_nb_samples = av_rescale_rnd(
                 swr_get_delay(ctx->swr_context, ctx->av_codec_context->sample_rate) + ctx->av_frame->nb_samples,
-                msp_sdl_wanted_spec.freq,
+                AUDIO_OUT_SPEC.freq,
                 ctx->av_codec_context->sample_rate,
                 AV_ROUND_UP
             );
@@ -371,9 +370,9 @@ void msp_decode_next_frame(playback_context_t *ctx) {
             ret = av_samples_alloc(
                 &out_buffer,
                 &out_line_size,
-                msp_sdl_wanted_spec.channels,
+                AUDIO_OUT_SPEC.channels,
                 (int) max_dst_nb_samples,
-                msp_av_sample_format,
+                SAMPLE_FORMAT,
                 0
             );
 
@@ -396,8 +395,8 @@ void msp_decode_next_frame(playback_context_t *ctx) {
 
 
             if (dst_nb_samples > 0) {
-                const uint32_t bytes_per_sample = SDL_AUDIO_BYTESIZE(msp_sdl_wanted_spec.format);
-                const uint32_t bytes_per_frame = (uint32_t) msp_sdl_wanted_spec.channels * bytes_per_sample;
+                const uint32_t bytes_per_sample = SDL_AUDIO_BYTESIZE(AUDIO_OUT_SPEC.format);
+                const uint32_t bytes_per_frame = (uint32_t) AUDIO_OUT_SPEC.channels * bytes_per_sample;
                 const uint32_t buffer_size = (uint32_t) dst_nb_samples * bytes_per_frame;
 
                 // 8. Отправляем буфер в очередь через SDL_PutAudioStreamData
