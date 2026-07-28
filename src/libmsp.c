@@ -15,12 +15,20 @@
 
 #define DEFERRED_CLEANUP(clean_func) __attribute__((cleanup(clean_func)))
 
+#ifdef NDEBUG
+#define LOG_DEBUG(who, fmt, ...) ((void)0)
+#else
+#define LOG_DEBUG(who, fmt, ...) do { \
+    printf("[DEBUG][%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
+    } while(0)
+#endif
+
 #define LOG_INFO(who, fmt, ...) do { \
-printf("[%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
+printf("[INFO][%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
 } while(0)
 
 #define LOG_ERROR(who, fmt, ...) do { \
-fprintf(stderr, "[%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
+fprintf(stderr, "[ERROR][%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
 } while(0)
 
 //======================================================================================================================
@@ -510,21 +518,54 @@ bool msp_toggle_pause(void) {
 }
 
 // This function does not interact with playback thread
-char **msp_get_metadata(const char *filename, const char **keys, size_t keys_count) {
+char **msp_get_metadata(const char *filename, const char **keys, const size_t keys_count) {
     if (!filename || !keys || keys_count == 0) {
         LOG_ERROR(MAIN_THREAD_NAME, "Invalid msp_get_metadata() params");
         return nullptr;
     }
 
+    // It's a caller responsibility to free this memory
     char **results = calloc(keys_count, sizeof(char *));
+
+    // Open file with deferred cleanup
+    DEFERRED_CLEANUP(avformat_close_input)
+            AVFormatContext *ctx = nullptr;
+    int ret = avformat_open_input(&ctx, filename, nullptr, nullptr);
+    if (ret < 0) {
+        handle_ffmpeg_error("avformat_open_input", ret);
+        LOG_ERROR(MAIN_THREAD_NAME, "ffmpeg cannot open %s", filename);
+        return nullptr;
+    }
+
+    // Looking for container format
+    ret = avformat_find_stream_info(ctx, nullptr);
+    if (ret < 0) {
+        handle_ffmpeg_error("avformat_find_stream_info", ret);
+        LOG_ERROR(MAIN_THREAD_NAME, "ffmpeg cannot find stream info in file %s", filename);
+        return nullptr;
+    }
+    LOG_DEBUG(MAIN_THREAD_NAME, "Container <%s> is found in %s", ctx->iformat->name, filename);
+
+    // Here we should have metadata
+    for (size_t i = 0; i < keys_count; i++) {
+        LOG_DEBUG(MAIN_THREAD_NAME, "Looking for '%s' in metadata", keys[i]);
+        AVDictionaryEntry *entry = av_dict_get(ctx->metadata, keys[i], nullptr, 0);
+        if (!entry) {
+            LOG_DEBUG(MAIN_THREAD_NAME, "%s: not found", keys[i]);
+            results[i] = nullptr;
+        } else {
+            results[i] = strdup(entry->value);
+            LOG_DEBUG(MAIN_THREAD_NAME, "Found meta for key '%s': '%s'", keys[i], results[i]);
+        }
+    }
 
     return results;
 }
 
-void msp_free_metadata_result(char **values, size_t keys_count) {
+void msp_free_metadata_result(char **values, const size_t keys_count) {
     if (!values) return;
 
-    for (size_t i =0; i < keys_count; i++) {
+    for (size_t i = 0; i < keys_count; i++) {
         free(values[i]);
     }
     free(values);

@@ -42,7 +42,8 @@ int msp_get_position_sec(void);
 
 // Opens file, reads its metadata. Does NOT require msp_init(), can be called freely at any moment.
 // Returns values for requested metadata keys (or NULL if not found),
-// each key could be e.g. "artist", "title" etc
+// each key could be e.g. "artist", "title", etc.
+// Caller is responsible to call msp_free_metadata_result() to free returned values.
 char **msp_get_metadata(const char *filename, const char **keys, size_t keys_count);
 
 // Frees msp_get_metadata() result

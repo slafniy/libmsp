@@ -8,6 +8,7 @@ int main() {
     msp_init();
 
     const char *song1 = "/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3";
+    // const char *song1 = "../testapp/test.ogg";
 
     msp_play(song1);
 
