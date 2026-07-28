@@ -1,5 +1,7 @@
 #pragma once
 
+#include <pthread.h>
+
 // Player statuses
 typedef enum {
     MSP_STATUS_IDLE = 0,
@@ -17,6 +19,9 @@ typedef struct {
     char *format;
     int duration_sec;
     int bitrate;
+
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
 } msp_track_meta_t;
 
 // =====================================================================================================================
@@ -50,7 +55,7 @@ msp_status_t msp_get_status(void);
 
 int msp_get_position_sec(void);
 
-int msp_get_metadata(msp_track_meta_t *out_meta);
+msp_track_meta_t msp_get_metadata();
 
 void msp_free_metadata(msp_track_meta_t *meta); // to free memory
 // =====================================================================================================================

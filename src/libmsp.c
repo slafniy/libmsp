@@ -64,6 +64,9 @@ static msp_command_q_t *msp_command_q = nullptr; // queue for commands for playb
 static SDL_AudioStream *msp_sdl_stream = nullptr;
 static uint32_t msp_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
 
+static msp_track_meta_t msp_track_meta; // current file metadata
+//======================================================================================================================
+
 // ReSharper disable once CppDeclaratorNeverUsed - it is used via macro.
 // Final de-initialization before application exit.
 static void msp_free_playback_context(playback_context_t **playback_context) {
@@ -84,6 +87,38 @@ static void msp_handle_ffmpeg_error(const char *what, const int err) {
     av_strerror(err, buf, sizeof(buf));
     // TODO: figure out why system errors do not show
     fprintf(stderr, "libmsp: %s error: %s\n", what, buf);
+}
+
+// Thread-safe, fills every field with default values, except synchronization primitives
+void clear_msp_track_meta() {
+    pthread_mutex_lock(&msp_track_meta.mutex);
+
+    const auto unknown = "Unknown";
+    msp_track_meta.format = unknown;
+    msp_track_meta.artist = unknown;
+    msp_track_meta.title = unknown;
+    msp_track_meta.album = unknown;
+    msp_track_meta.year = unknown;
+    msp_track_meta.bitrate = -1;
+    msp_track_meta.duration_sec = -1;
+
+    pthread_mutex_unlock(&msp_track_meta.mutex);
+}
+
+// Initializes msp_track_meta. Not thread-safe, should be used from main thread only
+void msp_init_track_meta() {
+    pthread_mutex_init(&msp_track_meta.mutex, nullptr);
+    pthread_cond_init(&msp_track_meta.cond, nullptr);
+    clear_msp_track_meta();
+}
+
+// Not thread-safe, only main thread
+void msp_destroy_track_meta() {
+    free(msp_track_meta.format);
+    free(msp_track_meta.artist);
+    free(msp_track_meta.title);
+    free(msp_track_meta.album);
+    free(msp_track_meta.year);
 }
 
 bool msp_init_sdl3() {
@@ -437,13 +472,16 @@ bool exec_command(const msp_command_t command) {
 // =====================================================================================================================
 
 int msp_init() {
+    // Create playback thread
     if (pthread_create(&msp_playback_thread, nullptr, msp_playback_thread_func, nullptr) != 0) {
         return -1;
     }
 
+    // Initialize command q which transfers commands from main thread to playback thread
     msp_command_q = calloc(1, sizeof(*msp_command_q));
     msp_q_init(msp_command_q);
 
+    // Init SDL audio output system
     if (!msp_init_sdl3()) {
         return -1;
     }
@@ -460,6 +498,9 @@ void msp_deinit(void) {
     msp_q_destroy(msp_command_q);
 
     msp_deinit_sdl3();
+
+    pthread_mutex_destroy(&msp_track_meta.mutex);
+    pthread_cond_destroy(&msp_track_meta.cond);
 }
 
 
@@ -496,6 +537,10 @@ bool msp_set_position(const int position_ms) {
         .payload.position_ms = position_ms
     };
     return exec_command(command);
+}
+
+msp_track_meta_t msp_get_metadata() {
+    return msp_track_meta;
 }
 
 bool msp_toggle_pause(void) {
