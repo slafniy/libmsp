@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <pthread.h>
+#include <stdint.h>
 
 static constexpr int MSP_Q_SIZE = 10;
 
@@ -38,7 +39,7 @@ typedef struct {
         // If msp_q_push() returns true - worker thread MUST free() *filename
         // If msp_q_push() returns false (q overflow case) - caller thread MUST free() it itself
         char *filename;
-        int position_ms;
+        uint32_t position_ms;
         float volume;
     } payload;
 } msp_command_t;

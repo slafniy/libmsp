@@ -31,7 +31,7 @@ bool msp_stop(void);
 
 bool msp_set_volume(float volume);
 
-bool msp_set_position(int position_ms);
+bool msp_set_position(unsigned int position_ms);
 
 // =====================================================================================================================
 // Data obtaining interface

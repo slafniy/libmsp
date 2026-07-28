@@ -20,6 +20,18 @@ int main() {
     }
     msp_free_metadata_result(values, keys_count);
 
+    msp_set_volume(0.75f);
+    msp_set_position(1000 * 150);
+    sleep(3);
+    msp_set_position(1000 * 0);
+    msp_set_position(1000 * 200);
+
+    // sleep(1);
+    // msp_toggle_pause();
+    // sleep(1);
+    // msp_toggle_pause();
+    // sleep(1);
+
     sleep(3);
     msp_deinit();
     return 0;

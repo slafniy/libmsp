@@ -31,6 +31,13 @@ printf("[INFO][%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); 
 fprintf(stderr, "[ERROR][%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
 } while(0)
 
+// ffmpeg logging level
+#ifdef NDEBUG
+static constexpr int FFMPEG_LOG_LEVEL = AV_LOG_ERROR;
+#else
+static constexpr int FFMPEG_LOG_LEVEL = AV_LOG_DEBUG;
+#endif
+
 //======================================================================================================================
 // Global constants
 //======================================================================================================================
@@ -197,6 +204,44 @@ static bool open_new_file(playback_context_t *ctx) {
     return true;
 }
 
+// Playback thread function. Sets current playback position and clears buffers to make transition seamless
+static bool playback_set_position(playback_context_t *ctx, int position_ms) {
+    if (!ctx || !ctx->av_format_context || ctx->audio_stream_index < 0) return false;
+
+    const AVStream *stream = ctx->av_format_context->streams[ctx->audio_stream_index];
+
+    const int64_t target_ts = av_rescale_q(
+        (int64_t) position_ms,
+        (AVRational){1, 1000},
+        stream->time_base
+    );
+
+    const int ret = av_seek_frame(
+        ctx->av_format_context,
+        ctx->audio_stream_index,
+        target_ts,
+        AVSEEK_FLAG_BACKWARD
+    );
+
+    if (ret < 0) {
+        handle_ffmpeg_error("av_seek_frame", ret);
+        return false;
+    }
+
+    // Clear buffers to made instant transition
+    if (ctx->av_codec_context) {
+        avcodec_flush_buffers(ctx->av_codec_context);
+    }
+    if (ctx->swr_context) {
+        swr_convert(ctx->swr_context, nullptr, 0, nullptr, 0);
+    }
+    if (g_sdl_stream) {
+        SDL_ClearAudioStream(g_sdl_stream);
+    }
+
+    return true;
+}
+
 // Playback thread function. Determines what thread should do in the next iteration and sets playback_context->status
 static void handle_command(playback_context_t *playback_context, const msp_command_t *command) {
     switch (command->type) {
@@ -239,6 +284,9 @@ static void handle_command(playback_context_t *playback_context, const msp_comma
             break;
         case MSP_SET_POSITION:
             LOG_INFO(PLAYBACK_THREAD_NAME, "Setting playback position to %i ms", command->payload.position_ms);
+            if (!playback_set_position(playback_context, command->payload.position_ms)) {
+                LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot seek to position %i ms", command->payload.position_ms);
+            }
             break;
         default:
             LOG_ERROR(PLAYBACK_THREAD_NAME, "Unknown command type received: %i", command->type);
@@ -463,6 +511,9 @@ int msp_init() {
         return -1;
     }
 
+    // Set ffmpeg logging level to avoid console noise in release
+    av_log_set_level(FFMPEG_LOG_LEVEL);
+
     return 0;
 }
 
@@ -504,7 +555,7 @@ bool msp_set_volume(float volume) {
     return exec_command(command);
 }
 
-bool msp_set_position(const int position_ms) {
+bool msp_set_position(const uint32_t position_ms) {
     const msp_command_t command = {
         .type = MSP_SET_POSITION,
         .payload.position_ms = position_ms
