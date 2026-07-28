@@ -46,11 +46,6 @@ static pthread_t g_playback_thread; // handles commands and uses ffmpeg libs to 
 static msp_command_q_t *g_command_q = nullptr; // queue for commands for playback thread
 static SDL_AudioStream *g_sdl_stream = nullptr;
 static uint32_t g_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
-
-static msp_track_meta_t g_track_meta; // current file metadata
-static pthread_mutex_t g_track_meta_mutex;
-static pthread_cond_t g_track_meta_cond;
-bool g_track_meta_is_ready; // indicates we have filled data
 //======================================================================================================================
 
 // Playback context, used to carry playback thread context between playback thread functions
@@ -103,51 +98,6 @@ static void clear_playback_context(playback_context_t *ctx) {
     if (ctx->av_frame) av_frame_unref(ctx->av_frame);
 }
 
-// Thread-safe, fills every field with default values, except synchronization primitives
-static void clear_track_meta() {
-    pthread_mutex_lock(&g_track_meta_mutex);
-
-    const auto unknown = "Unknown";
-    g_track_meta.format = strdup(unknown);
-    g_track_meta.artist = strdup(unknown);
-    g_track_meta.title = strdup(unknown);
-    g_track_meta.album = strdup(unknown);
-    g_track_meta.year = strdup(unknown);
-    g_track_meta.bitrate = -1;
-    g_track_meta.duration_sec = -1;
-
-    g_track_meta_is_ready = false;
-    pthread_mutex_unlock(&g_track_meta_mutex);
-}
-
-// Playback thread function. thread-safe.
-static void fill_track_meta(playback_context_t *ctx) {
-    pthread_mutex_lock(&g_track_meta_mutex);
-
-    g_track_meta.artist = strdup("Piska");
-    g_track_meta.title = strdup("Zhopka!");
-
-    g_track_meta_is_ready = true;
-    pthread_cond_signal(&g_track_meta_cond);
-    pthread_mutex_unlock(&g_track_meta_mutex);
-}
-
-// Initializes msp_track_meta. Not thread-safe, should be used from main thread only
-static void init_track_meta() {
-    pthread_mutex_init(&g_track_meta_mutex, nullptr);
-    pthread_cond_init(&g_track_meta_cond, nullptr);
-    clear_track_meta();
-}
-
-// Not thread-safe, only main thread
-static void destroy_track_meta() {
-    free(g_track_meta.format);
-    free(g_track_meta.artist);
-    free(g_track_meta.title);
-    free(g_track_meta.album);
-    free(g_track_meta.year);
-}
-
 static void handle_ffmpeg_error(const char *what, const int err) {
     char buf[AV_ERROR_MAX_STRING_SIZE];
     av_strerror(err, buf, sizeof(buf));
@@ -175,10 +125,6 @@ static bool open_new_file(playback_context_t *ctx) {
 
     LOG_INFO(PLAYBACK_THREAD_NAME, "Container <%s> is found in %s", ctx->av_format_context->iformat->name,
              ctx->filename);
-
-    // At this point ffmpeg should have metadata - so trying to obtain it
-    clear_track_meta();
-    fill_track_meta(ctx);
 
     // Looking for audio stream and decoder
     const AVCodec *codec = nullptr;
@@ -504,10 +450,6 @@ int msp_init() {
         return -1;
     }
 
-    // Init track metadata with defaults
-    init_track_meta();
-    clear_track_meta();
-
     // Create playback thread
     if (pthread_create(&g_playback_thread, nullptr, playback_thread_func, nullptr) != 0) {
         return -1;
@@ -525,19 +467,9 @@ void msp_deinit(void) {
     msp_q_destroy(g_command_q);
 
     destroy_sdl3();
-
-    pthread_mutex_destroy(&g_track_meta_mutex);
-    pthread_cond_destroy(&g_track_meta_cond);
-
-    destroy_track_meta();
 }
 
 bool msp_play(const char *filename) {
-    // mark metadata as not ready here to be sure we have cannot get an old one after this function call
-    pthread_mutex_lock(&g_track_meta_mutex);
-    g_track_meta_is_ready = false;
-    pthread_mutex_unlock(&g_track_meta_mutex);
-
     const msp_command_t command = {
         .type = MSP_PLAY,
         .payload.filename = strdup(filename)
@@ -572,30 +504,28 @@ bool msp_set_position(const int position_ms) {
     return exec_command(command);
 }
 
-msp_track_meta_t msp_get_metadata() {
-    pthread_mutex_lock(&g_track_meta_mutex);
-
-    while (!g_track_meta_is_ready) {
-        pthread_cond_wait(&g_track_meta_cond, &g_track_meta_mutex);
-    }
-
-    msp_track_meta_t ret;
-#define FILL(what) ret.what = g_track_meta.what ? strdup(g_track_meta.what) : strdup("Unknown");
-    FILL(artist)
-    FILL(title)
-    FILL(album)
-    FILL(format)
-    FILL(year)
-    ret.bitrate = g_track_meta.bitrate;
-    ret.duration_sec = g_track_meta.duration_sec;
-
-
-    pthread_mutex_unlock(&g_track_meta_mutex);
-
-    return ret;
-}
-
 bool msp_toggle_pause(void) {
     const msp_command_t command = {.type = MSP_TOGGLE_PAUSE};
     return exec_command(command);
+}
+
+// This function does not interact with playback thread
+char **msp_get_metadata(const char *filename, const char **keys, size_t keys_count) {
+    if (!filename || !keys || keys_count == 0) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Invalid msp_get_metadata() params");
+        return nullptr;
+    }
+
+    char **results = calloc(keys_count, sizeof(char *));
+
+    return results;
+}
+
+void msp_free_metadata_result(char **values, size_t keys_count) {
+    if (!values) return;
+
+    for (size_t i =0; i < keys_count; i++) {
+        free(values[i]);
+    }
+    free(values);
 }

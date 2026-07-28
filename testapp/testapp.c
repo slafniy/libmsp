@@ -6,9 +6,19 @@
 
 int main() {
     msp_init();
-    msp_play("/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3");
-    const msp_track_meta_t meta = msp_get_metadata();
-    printf("NOW PLAYING >> %s - %s", meta.artist, meta.title);
+
+    const char *song1 = "/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3";
+
+    msp_play(song1);
+
+    const char *keys[] = {"artist", "title"};
+    constexpr size_t keys_count = sizeof(keys) / sizeof(keys[0]);
+    char **values = msp_get_metadata(song1, keys, keys_count);
+    if (values) {
+        printf("NOW PLAYING >> %s - %s\n", values[0], values[1]);
+    }
+    msp_free_metadata_result(values, keys_count);
+
     sleep(3);
     msp_deinit();
     return 0;
