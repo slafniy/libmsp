@@ -64,5 +64,3 @@ bool msp_q_try_pop(msp_command_q_t *q, msp_command_t *out_command) {
     pthread_mutex_unlock(&q->mutex);
     return true;
 }
-
-

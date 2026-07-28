@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <pthread.h>
 
-#define MSP_Q_SIZE 10
+static constexpr int MSP_Q_SIZE = 10;
 
 typedef enum {
     MSP_PLAY,

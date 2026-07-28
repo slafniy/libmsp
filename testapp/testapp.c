@@ -7,12 +7,9 @@
 int main() {
     msp_init();
     msp_play("/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3");
-
-    sleep(60);
-    msp_play("/mnt/data/Music/Be'lakor/08 The Smoke of Many Fires.m4a");
     const msp_track_meta_t meta = msp_get_metadata();
     printf("NOW PLAYING >> %s - %s", meta.artist, meta.title);
-    sleep(60);
+    sleep(3);
     msp_deinit();
     return 0;
 }

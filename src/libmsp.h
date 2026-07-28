@@ -19,9 +19,6 @@ typedef struct {
     char *format;
     int duration_sec;
     int bitrate;
-
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
 } msp_track_meta_t;
 
 // =====================================================================================================================

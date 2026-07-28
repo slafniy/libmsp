@@ -16,11 +16,11 @@
 #define DEFERRED_CLEANUP(clean_func) __attribute__((cleanup(clean_func)))
 
 #define LOG_INFO(who, fmt, ...) do { \
-printf("[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
+printf("[%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
 } while(0)
 
 #define LOG_ERROR(who, fmt, ...) do { \
-fprintf(stderr, "[%s]: " fmt "\n", (who) __VA_OPT__(,) __VA_ARGS__); \
+fprintf(stderr, "[%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
 } while(0)
 
 //======================================================================================================================
@@ -48,6 +48,9 @@ static SDL_AudioStream *g_sdl_stream = nullptr;
 static uint32_t g_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
 
 static msp_track_meta_t g_track_meta; // current file metadata
+static pthread_mutex_t g_track_meta_mutex;
+static pthread_cond_t g_track_meta_cond;
+bool g_track_meta_is_ready; // indicates we have filled data
 //======================================================================================================================
 
 // Playback context, used to carry playback thread context between playback thread functions
@@ -69,31 +72,75 @@ typedef struct {
     SwrContext *swr_context;
 } playback_context_t;
 
+// ReSharper disable once CppDeclaratorNeverUsed - it is used via macro.
+// Final de-initialization before application exit.
+static void destroy_playback_context(playback_context_t **playback_context) {
+    if (!playback_context || !*playback_context) return;
+    const auto ctx_ptr = *playback_context;
+    if (ctx_ptr->filename) free(ctx_ptr->filename);
+    if (ctx_ptr->av_format_context) avformat_close_input(&ctx_ptr->av_format_context); // also sets it to NULL
+    if (ctx_ptr->av_codec_context) avcodec_free_context(&ctx_ptr->av_codec_context); // also sets it to NULL
+    if (ctx_ptr->swr_context) swr_free(&ctx_ptr->swr_context);
+    if (ctx_ptr->av_packet) av_packet_free(&ctx_ptr->av_packet);
+    if (ctx_ptr->av_frame) av_frame_free(&ctx_ptr->av_frame);
+    free(ctx_ptr);
+    *playback_context = nullptr;
+}
+
+// Playback thread function. Clears context, preparing it for the new file
+static void clear_playback_context(playback_context_t *ctx) {
+    if (ctx->filename) {
+        free(ctx->filename);
+        ctx->filename = nullptr;
+    }
+    ctx->audio_stream_index = -1;
+    // Close per-file-unique contexts
+    if (ctx->av_format_context) avformat_close_input(&ctx->av_format_context);
+    if (ctx->av_codec_context) avcodec_free_context(&ctx->av_codec_context);
+    if (ctx->swr_context) swr_free(&ctx->swr_context);
+    // Do not free packet and frame, just unref, they could be reused without reallocation
+    if (ctx->av_packet) av_packet_unref(ctx->av_packet);
+    if (ctx->av_frame) av_frame_unref(ctx->av_frame);
+}
+
 // Thread-safe, fills every field with default values, except synchronization primitives
-void clear_msp_track_meta() {
-    pthread_mutex_lock(&g_track_meta.mutex);
+static void clear_track_meta() {
+    pthread_mutex_lock(&g_track_meta_mutex);
 
     const auto unknown = "Unknown";
-    g_track_meta.format = unknown;
-    g_track_meta.artist = unknown;
-    g_track_meta.title = unknown;
-    g_track_meta.album = unknown;
-    g_track_meta.year = unknown;
+    g_track_meta.format = strdup(unknown);
+    g_track_meta.artist = strdup(unknown);
+    g_track_meta.title = strdup(unknown);
+    g_track_meta.album = strdup(unknown);
+    g_track_meta.year = strdup(unknown);
     g_track_meta.bitrate = -1;
     g_track_meta.duration_sec = -1;
 
-    pthread_mutex_unlock(&g_track_meta.mutex);
+    g_track_meta_is_ready = false;
+    pthread_mutex_unlock(&g_track_meta_mutex);
+}
+
+// Playback thread function. thread-safe.
+static void fill_track_meta(playback_context_t *ctx) {
+    pthread_mutex_lock(&g_track_meta_mutex);
+
+    g_track_meta.artist = strdup("Piska");
+    g_track_meta.title = strdup("Zhopka!");
+
+    g_track_meta_is_ready = true;
+    pthread_cond_signal(&g_track_meta_cond);
+    pthread_mutex_unlock(&g_track_meta_mutex);
 }
 
 // Initializes msp_track_meta. Not thread-safe, should be used from main thread only
-void msp_init_track_meta() {
-    pthread_mutex_init(&g_track_meta.mutex, nullptr);
-    pthread_cond_init(&g_track_meta.cond, nullptr);
-    clear_msp_track_meta();
+static void init_track_meta() {
+    pthread_mutex_init(&g_track_meta_mutex, nullptr);
+    pthread_cond_init(&g_track_meta_cond, nullptr);
+    clear_track_meta();
 }
 
 // Not thread-safe, only main thread
-void msp_destroy_track_meta() {
+static void destroy_track_meta() {
     free(g_track_meta.format);
     free(g_track_meta.artist);
     free(g_track_meta.title);
@@ -108,23 +155,8 @@ static void handle_ffmpeg_error(const char *what, const int err) {
     fprintf(stderr, "libmsp: %s error: %s\n", what, buf);
 }
 
-// ReSharper disable once CppDeclaratorNeverUsed - it is used via macro.
-// Final de-initialization before application exit.
-static void free_playback_context(playback_context_t **playback_context) {
-    if (!playback_context || !*playback_context) return;
-    const auto ctx_ptr = *playback_context;
-    if (ctx_ptr->filename) free(ctx_ptr->filename);
-    if (ctx_ptr->av_format_context) avformat_close_input(&ctx_ptr->av_format_context); // also sets it to NULL
-    if (ctx_ptr->av_codec_context) avcodec_free_context(&ctx_ptr->av_codec_context); // also sets it to NULL
-    if (ctx_ptr->swr_context) swr_free(&ctx_ptr->swr_context);
-    if (ctx_ptr->av_packet) av_packet_free(&ctx_ptr->av_packet);
-    if (ctx_ptr->av_frame) av_frame_free(&ctx_ptr->av_frame);
-    free(ctx_ptr);
-    *playback_context = nullptr;
-}
-
 // Playback thread function. Opens file, looks for audio stream, codec etc.
-bool open_new_file(playback_context_t *ctx) {
+static bool open_new_file(playback_context_t *ctx) {
     // Trying to open audio file
     int ret = avformat_open_input(&ctx->av_format_context, ctx->filename, nullptr, nullptr);
     if (ret < 0) {
@@ -143,6 +175,10 @@ bool open_new_file(playback_context_t *ctx) {
 
     LOG_INFO(PLAYBACK_THREAD_NAME, "Container <%s> is found in %s", ctx->av_format_context->iformat->name,
              ctx->filename);
+
+    // At this point ffmpeg should have metadata - so trying to obtain it
+    clear_track_meta();
+    fill_track_meta(ctx);
 
     // Looking for audio stream and decoder
     const AVCodec *codec = nullptr;
@@ -207,24 +243,8 @@ bool open_new_file(playback_context_t *ctx) {
     return true;
 }
 
-// Playback thread function. Clears context, preparing it for the new file
-void clear_playback_context(playback_context_t *ctx) {
-    if (ctx->filename) {
-        free(ctx->filename);
-        ctx->filename = nullptr;
-    }
-    ctx->audio_stream_index = -1;
-    // Close per-file-unique contexts
-    if (ctx->av_format_context) avformat_close_input(&ctx->av_format_context);
-    if (ctx->av_codec_context) avcodec_free_context(&ctx->av_codec_context);
-    if (ctx->swr_context) swr_free(&ctx->swr_context);
-    // Do not free packet and frame, just unref, they could be reused without reallocation
-    if (ctx->av_packet) av_packet_unref(ctx->av_packet);
-    if (ctx->av_frame) av_frame_unref(ctx->av_frame);
-}
-
 // Playback thread function. Determines what thread should do in the next iteration and sets playback_context->status
-void handle_command(playback_context_t *playback_context, const msp_command_t *command) {
+static void handle_command(playback_context_t *playback_context, const msp_command_t *command) {
     switch (command->type) {
         case MSP_PLAY:
             // clear audio stream
@@ -273,7 +293,7 @@ void handle_command(playback_context_t *playback_context, const msp_command_t *c
 }
 
 // Playback thread function. Decodes a frame and sends data to SDL2
-void decode_next_frame(playback_context_t *ctx) {
+static void decode_next_frame(playback_context_t *ctx) {
     // do not load CPU too much, keep only small buffer of decoded data
     if (SDL_GetAudioStreamQueued(g_sdl_stream) > g_sdl_queue_size_bytes) {
         SDL_Delay(ALLOWED_AUDIO_DELAY_MS);
@@ -373,8 +393,8 @@ void decode_next_frame(playback_context_t *ctx) {
     av_packet_unref(ctx->av_packet);
 }
 
-void *playback_thread_func(void *_) {
-    DEFERRED_CLEANUP(free_playback_context)
+static void *playback_thread_func(void *_) {
+    DEFERRED_CLEANUP(destroy_playback_context)
             // ReSharper disable once CppDFAMemoryLeak
             playback_context_t *playback_context = calloc(1, sizeof(*playback_context));
     if (!playback_context) {
@@ -420,7 +440,7 @@ void *playback_thread_func(void *_) {
 }
 
 // Sends a command to Playback thread
-bool exec_command(const msp_command_t command) {
+static bool exec_command(const msp_command_t command) {
     if (!msp_q_push(g_command_q, command)) {
         LOG_ERROR(MAIN_THREAD_NAME, "%s command failed: the command q is full!", msp_command_to_str(command.type));
         return false;
@@ -429,7 +449,7 @@ bool exec_command(const msp_command_t command) {
     return true;
 }
 
-bool init_sdl3() {
+static bool init_sdl3() {
     if (!SDL_Init(SDL_INIT_AUDIO)) {
         LOG_ERROR(MAIN_THREAD_NAME, "Cannot init SDL: %s", SDL_GetError());
         return false;
@@ -460,7 +480,7 @@ bool init_sdl3() {
     return true;
 }
 
-void deinit_sdl3() {
+static void destroy_sdl3() {
     if (g_sdl_stream) {
         SDL_PauseAudioStreamDevice(g_sdl_stream);
         SDL_ClearAudioStream(g_sdl_stream);
@@ -475,17 +495,21 @@ void deinit_sdl3() {
 // =====================================================================================================================
 
 int msp_init() {
-    // Create playback thread
-    if (pthread_create(&g_playback_thread, nullptr, playback_thread_func, nullptr) != 0) {
-        return -1;
-    }
-
     // Initialize command q which transfers commands from main thread to playback thread
     g_command_q = calloc(1, sizeof(*g_command_q));
     msp_q_init(g_command_q);
 
     // Init SDL audio output system
     if (!init_sdl3()) {
+        return -1;
+    }
+
+    // Init track metadata with defaults
+    init_track_meta();
+    clear_track_meta();
+
+    // Create playback thread
+    if (pthread_create(&g_playback_thread, nullptr, playback_thread_func, nullptr) != 0) {
         return -1;
     }
 
@@ -500,13 +524,20 @@ void msp_deinit(void) {
     pthread_join(g_playback_thread, nullptr);
     msp_q_destroy(g_command_q);
 
-    deinit_sdl3();
+    destroy_sdl3();
 
-    pthread_mutex_destroy(&g_track_meta.mutex);
-    pthread_cond_destroy(&g_track_meta.cond);
+    pthread_mutex_destroy(&g_track_meta_mutex);
+    pthread_cond_destroy(&g_track_meta_cond);
+
+    destroy_track_meta();
 }
 
 bool msp_play(const char *filename) {
+    // mark metadata as not ready here to be sure we have cannot get an old one after this function call
+    pthread_mutex_lock(&g_track_meta_mutex);
+    g_track_meta_is_ready = false;
+    pthread_mutex_unlock(&g_track_meta_mutex);
+
     const msp_command_t command = {
         .type = MSP_PLAY,
         .payload.filename = strdup(filename)
@@ -542,7 +573,26 @@ bool msp_set_position(const int position_ms) {
 }
 
 msp_track_meta_t msp_get_metadata() {
-    return g_track_meta;
+    pthread_mutex_lock(&g_track_meta_mutex);
+
+    while (!g_track_meta_is_ready) {
+        pthread_cond_wait(&g_track_meta_cond, &g_track_meta_mutex);
+    }
+
+    msp_track_meta_t ret;
+#define FILL(what) ret.what = g_track_meta.what ? strdup(g_track_meta.what) : strdup("Unknown");
+    FILL(artist)
+    FILL(title)
+    FILL(album)
+    FILL(format)
+    FILL(year)
+    ret.bitrate = g_track_meta.bitrate;
+    ret.duration_sec = g_track_meta.duration_sec;
+
+
+    pthread_mutex_unlock(&g_track_meta_mutex);
+
+    return ret;
 }
 
 bool msp_toggle_pause(void) {
