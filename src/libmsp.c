@@ -524,9 +524,6 @@ char **msp_get_metadata(const char *filename, const char **keys, const size_t ke
         return nullptr;
     }
 
-    // It's a caller responsibility to free this memory
-    char **results = calloc(keys_count, sizeof(char *));
-
     // Open file with deferred cleanup
     DEFERRED_CLEANUP(avformat_close_input)
             AVFormatContext *ctx = nullptr;
@@ -545,6 +542,9 @@ char **msp_get_metadata(const char *filename, const char **keys, const size_t ke
         return nullptr;
     }
     LOG_DEBUG(MAIN_THREAD_NAME, "Container <%s> is found in %s", ctx->iformat->name, filename);
+
+    // It's a caller responsibility to free this memory
+    char **results = calloc(keys_count, sizeof(char *));
 
     // Here we should have metadata
     for (size_t i = 0; i < keys_count; i++) {
