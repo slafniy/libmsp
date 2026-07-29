@@ -55,7 +55,7 @@ static constexpr SDL_AudioSpec AUDIO_OUT_SPEC = {.freq = SAMPLE_RATE, .format = 
 static constexpr AVChannelLayout CHANNEL_LAYOUT = AV_CHANNEL_LAYOUT_STEREO; // should match msp_sdl_wanted_spec!
 static constexpr enum AVSampleFormat SAMPLE_FORMAT = AV_SAMPLE_FMT_S16; // should match AUDIO_OUT_FORMAT!
 
-static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.5f;
+static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.25f;
 static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait if playback buffer is already full
 
 typedef enum {
