@@ -54,6 +54,7 @@ static constexpr int AUDIO_OUT_FORMAT = SDL_AUDIO_S16; // should be in pair with
 static constexpr SDL_AudioSpec AUDIO_OUT_SPEC = {.freq = SAMPLE_RATE, .format = AUDIO_OUT_FORMAT, .channels = 2};
 static constexpr AVChannelLayout CHANNEL_LAYOUT = AV_CHANNEL_LAYOUT_STEREO; // should match msp_sdl_wanted_spec!
 static constexpr enum AVSampleFormat SAMPLE_FORMAT = AV_SAMPLE_FMT_S16; // should match AUDIO_OUT_FORMAT!
+constexpr int MAX_STACK_SAMPLES = 8192; // should be enough for S16 * 2 channels
 
 static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.25f;
 static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait if playback buffer is already full
@@ -83,6 +84,7 @@ typedef struct {
 
     // resampler data
     SwrContext *swr_context;
+    alignas(16) uint8_t out_buffer[MAX_STACK_SAMPLES * 2 * 2];  // 2 channels * 2 bytes for S16 format
 } playback_context_t;
 
 //======================================================================================================================
@@ -397,11 +399,6 @@ static void decode_next_frame(playback_context_t *ctx) {
             handle_ffmpeg_error("avcodec_send_packet", ret);
         }
 
-        // buffer on stack
-        // should be enough for S16 * 2 channels?
-        constexpr int MAX_STACK_SAMPLES = 8192;
-        alignas(16) uint8_t out_buffer[MAX_STACK_SAMPLES * 2 * 2];
-
         // Get decoded frames
         while (ret >= 0) {
             ret = avcodec_receive_frame(ctx->av_codec_context, ctx->av_frame);
@@ -432,7 +429,7 @@ static void decode_next_frame(playback_context_t *ctx) {
             }
 
             // Resample!
-            uint8_t *out_buffer_ptr = out_buffer;
+            uint8_t *out_buffer_ptr = ctx->out_buffer;
             const int dst_nb_samples = swr_convert(
                 ctx->swr_context,
                 &out_buffer_ptr,
