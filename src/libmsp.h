@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 /**
  * Initializes the library. Should be called once before any other functions with a little exception:
  * the only allowed function to call without initialization is msp_get_metadata().
@@ -67,7 +69,7 @@ bool msp_set_volume(float volume);
  * @param position_ms
  * @return true. No special handling.
  */
-bool msp_set_position(unsigned int position_ms);
+bool msp_set_position(uint32_t position_ms);
 
 /**
  * Gets current playback position in milliseconds.
@@ -76,7 +78,7 @@ bool msp_set_position(unsigned int position_ms);
  * @param out_position_ms current playback position, make sense only if function returned true
  * @return true if it can find playback position, false otherwise (no file, broken file, not opened yet)
  */
-bool msp_get_position(unsigned int *out_position_ms);
+bool msp_get_position(uint32_t *out_position_ms);
 
 /**
  * Receives a duration of current file. To get a sentient result make sure libmsp is initialized and some file
@@ -84,7 +86,7 @@ bool msp_get_position(unsigned int *out_position_ms);
  * @param out_duration_ms - current file duration in milliseconds.
  * @return true if got something sentient, false otherwise.
  */
-bool msp_get_duration(unsigned int *out_duration_ms);
+bool msp_get_duration(uint32_t *out_duration_ms);
 
 /**
  * Opens file, reads its metadata. Does NOT require msp_init(), can be called freely at any moment.
@@ -96,7 +98,7 @@ bool msp_get_duration(unsigned int *out_duration_ms);
  * @param keys_count how many keys you've passed into function.
  * @return pointer to char* values, you can access them by indexer. Count is equal to keys_count.
  */
-char **msp_get_metadata(const char *filename, const char **keys, long unsigned int keys_count);
+char **msp_get_metadata(const char *filename, const char **keys, uint64_t keys_count);
 
 /**
  * Frees msp_get_metadata() result
@@ -111,4 +113,4 @@ char **msp_get_metadata(const char *filename, const char **keys, long unsigned i
     }
     msp_free_metadata_result(values, keys_count);
  */
-void msp_free_metadata_result(char **values, long unsigned int keys_count);
+void msp_free_metadata_result(char **values, uint64_t keys_count);

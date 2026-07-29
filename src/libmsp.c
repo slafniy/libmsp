@@ -639,7 +639,7 @@ bool msp_set_position(const uint32_t position_ms) {
     return exec_command(command);
 }
 
-bool msp_get_position(unsigned int *out_position_ms) {
+bool msp_get_position(uint32_t *out_position_ms) {
     if (!g_playback_context || g_playback_context->status == MSP_STATUS_IDLE) return false;
 
     const uint32_t pos = g_playback_context->decoded_pos_ms;
@@ -656,7 +656,7 @@ bool msp_get_position(unsigned int *out_position_ms) {
     return true;
 }
 
-bool msp_get_duration(unsigned int *out_duration_ms) {
+bool msp_get_duration(uint32_t *out_duration_ms) {
     if (!g_playback_context || g_playback_context->duration_ms == 0) return false;
 
     *out_duration_ms = g_playback_context->duration_ms;
@@ -670,7 +670,7 @@ bool msp_toggle_pause(void) {
 }
 
 // This function does not interact with playback thread
-char **msp_get_metadata(const char *filename, const char **keys, const size_t keys_count) {
+char **msp_get_metadata(const char *filename, const char **keys, const uint64_t keys_count) {
     if (!filename || !keys || keys_count == 0) {
         LOG_ERROR(MAIN_THREAD_NAME, "Invalid msp_get_metadata() params");
         return nullptr;
@@ -714,7 +714,7 @@ char **msp_get_metadata(const char *filename, const char **keys, const size_t ke
     return results;
 }
 
-void msp_free_metadata_result(char **values, const size_t keys_count) {
+void msp_free_metadata_result(char **values, const uint64_t keys_count) {
     if (!values) return;
 
     for (size_t i = 0; i < keys_count; i++) {
