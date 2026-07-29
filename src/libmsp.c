@@ -318,6 +318,7 @@ static void update_playback_position(playback_context_t *ctx) {
     // If something in the file is broken
     else {
         // TODO: implement case if needed
+        // https://github.com/slafniy/libmsp/issues/2
         // Should be something like
         // ctx->accumulated_pts_ms += ((int64_t)ctx->av_frame->nb_samples * 1000) /
         // ctx->av_codec_context->sample_rate;
@@ -449,7 +450,8 @@ static void *playback_thread_func(void *_) {
         bool has_command = false;
 
         // If playing - quickly check if we got a new command and not pause decoding
-        // TODO: add some sync here. If we decode fast enough, we still have plenty time and can sleep more
+        // TODO: add some sync here. If we decode fast enough, we still have plenty of time and can sleep more
+        // https://github.com/slafniy/libmsp/issues/1
         if (g_playback_context->status == MSP_STATUS_PLAYING) {
             has_command = msp_q_try_pop(g_command_q, &command);
         } else {
