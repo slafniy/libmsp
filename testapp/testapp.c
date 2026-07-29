@@ -14,7 +14,7 @@ static void sleep_ms(const int milliseconds) {
 
 int main() {
     msp_init();
-    msp_set_volume(0.01);
+    msp_set_volume(0.5);
 
     const char *song1 = "/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3";
     // const char *song2 = "../testapp/test.ogg";

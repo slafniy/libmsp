@@ -49,7 +49,7 @@ static constexpr char PLAYBACK_THREAD_NAME[] = "libmsp playback";
 static constexpr char MAIN_THREAD_NAME[] = "libmsp main";
 
 // Params of SDL audio output
-static constexpr int SAMPLE_RATE = 96000;
+static constexpr int SAMPLE_RATE = 48000;
 static constexpr int AUDIO_OUT_FORMAT = SDL_AUDIO_F32;
 static constexpr SDL_AudioSpec AUDIO_OUT_SPEC = {.freq = SAMPLE_RATE, .format = AUDIO_OUT_FORMAT, .channels = 2};
 static constexpr AVChannelLayout CHANNEL_LAYOUT = AV_CHANNEL_LAYOUT_STEREO; // should match msp_sdl_wanted_spec!
