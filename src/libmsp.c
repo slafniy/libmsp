@@ -80,8 +80,6 @@ typedef struct {
     // decoder temporary data
     AVPacket *av_packet;
     AVFrame *av_frame;
-    uint8_t *out_buffer;
-    int out_buffer_samples;
 
     // resampler data
     SwrContext *swr_context;
@@ -108,7 +106,6 @@ static void destroy_playback_context(playback_context_t **playback_context) {
     if (ctx_ptr->swr_context) swr_free(&ctx_ptr->swr_context);
     if (ctx_ptr->av_packet) av_packet_free(&ctx_ptr->av_packet);
     if (ctx_ptr->av_frame) av_frame_free(&ctx_ptr->av_frame);
-    if (ctx_ptr->out_buffer) av_freep(&ctx_ptr->out_buffer);
     free(ctx_ptr);
     *playback_context = nullptr;
     g_playback_context = nullptr;
@@ -124,8 +121,6 @@ static void clear_playback_context(playback_context_t *ctx) {
     ctx->decoded_pos_ms = 0;
     ctx->audio_stream_index = -1;
     ctx->status = MSP_STATUS_IDLE;
-    ctx->out_buffer_samples = 0;
-    av_freep(&ctx->out_buffer);
     // Close per-file-unique contexts
     if (ctx->av_format_context) avformat_close_input(&ctx->av_format_context);
     if (ctx->av_codec_context) avcodec_free_context(&ctx->av_codec_context);
@@ -402,6 +397,11 @@ static void decode_next_frame(playback_context_t *ctx) {
             handle_ffmpeg_error("avcodec_send_packet", ret);
         }
 
+        // buffer on stack
+        // should be enough for S16 * 2 channels?
+        constexpr int MAX_STACK_SAMPLES = 8192;
+        alignas(16) uint8_t out_buffer[MAX_STACK_SAMPLES * 2 * 2];
+
         // Get decoded frames
         while (ret >= 0) {
             ret = avcodec_receive_frame(ctx->av_codec_context, ctx->av_frame);
@@ -424,34 +424,18 @@ static void decode_next_frame(playback_context_t *ctx) {
                 AV_ROUND_UP
             );
 
-            // If current buffer is too small - realloc
-            if (max_dst_nb_samples > ctx->out_buffer_samples) {
-                av_freep(&ctx->out_buffer);
-                ctx->out_buffer_samples = 0;
-
-                int out_line_size = 0;
-                ret = av_samples_alloc(
-                    &ctx->out_buffer,
-                    &out_line_size,
-                    AUDIO_OUT_SPEC.channels,
-                    (int) max_dst_nb_samples,
-                    SAMPLE_FORMAT,
-                    0
-                );
-
-                if (ret < 0) {
-                    LOG_ERROR(PLAYBACK_THREAD_NAME, "Failed to allocate audio samples buffer");
-                    av_frame_unref(ctx->av_frame);
-                    return;
-                }
-
-                ctx->out_buffer_samples = (int) max_dst_nb_samples;
+            // check if we're not out of bounds
+            if (max_dst_nb_samples > MAX_STACK_SAMPLES) {
+                LOG_ERROR(PLAYBACK_THREAD_NAME, "Sample count %ld exceeds stack limit!", max_dst_nb_samples);
+                av_frame_unref(ctx->av_frame);
+                break;
             }
 
             // Resample!
+            uint8_t *out_buffer_ptr = out_buffer;
             const int dst_nb_samples = swr_convert(
                 ctx->swr_context,
-                &ctx->out_buffer,
+                &out_buffer_ptr,
                 (int) max_dst_nb_samples,
                 // ReSharper disable once CppRedundantCastExpression
                 // ffmpeg API expects const uint8_t *const *, AVFrame::data is uint8_t *[]
@@ -465,7 +449,7 @@ static void decode_next_frame(playback_context_t *ctx) {
                 const uint32_t buffer_size = (uint32_t) dst_nb_samples * bytes_per_frame;
 
                 // Send data for playback
-                SDL_PutAudioStreamData(g_sdl_stream, ctx->out_buffer, (int32_t) buffer_size);
+                SDL_PutAudioStreamData(g_sdl_stream, out_buffer_ptr, (int32_t) buffer_size);
             }
 
             av_frame_unref(ctx->av_frame);
