@@ -27,6 +27,10 @@
 printf("[INFO][%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
 } while(0)
 
+#define LOG_WARN(who, fmt, ...) do { \
+fprintf(stderr, "[WARN][%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
+} while(0)
+
 #define LOG_ERROR(who, fmt, ...) do { \
 fprintf(stderr, "[ERROR][%s]: " fmt "\n", (const char *)(who) __VA_OPT__(,) __VA_ARGS__); \
 } while(0)
@@ -113,6 +117,7 @@ static void clear_playback_context(playback_context_t *ctx) {
         free(ctx->filename);
         ctx->filename = nullptr;
     }
+    ctx->duration_ms = 0;
     ctx->decoded_pos_ms = 0;
     ctx->audio_stream_index = -1;
     ctx->status = MSP_STATUS_IDLE;
@@ -130,6 +135,34 @@ static void handle_ffmpeg_error(const char *what, const int err) {
     av_strerror(err, buf, sizeof(buf));
     // TODO: figure out why system errors do not show
     fprintf(stderr, "libmsp: %s error: %s\n", what, buf);
+}
+
+static void calculate_duration_ms(playback_context_t *ctx) {
+    if (!ctx || !ctx->av_format_context) return;
+
+    const int64_t duration = ctx->av_format_context->duration;
+
+    // happy case - container knows the duration
+    if (duration != AV_NOPTS_VALUE && duration > 0) {
+        ctx->duration_ms = (uint32_t) av_rescale(
+            ctx->av_format_context->duration,
+            1000,
+            AV_TIME_BASE
+        );
+    } else {
+        LOG_WARN(PLAYBACK_THREAD_NAME, "Cannot get track duration from format context, fallback to stream");
+        const AVStream *stream = ctx->av_format_context->streams[ctx->audio_stream_index];
+
+        if (stream->duration != AV_NOPTS_VALUE) {
+            ctx->duration_ms = (uint32_t) av_rescale_q(
+                stream->duration,
+                stream->time_base,
+                (AVRational){1, 1000}
+            );
+        } else {
+            LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot get file duration!");
+        }
+    }
 }
 
 // Playback thread function. Opens file, looks for audio stream, codec etc.
@@ -189,6 +222,9 @@ static bool open_new_file(playback_context_t *ctx) {
         LOG_ERROR(PLAYBACK_THREAD_NAME, "Failed to open codec");
         return false;
     }
+
+    // set duration field
+    calculate_duration_ms(ctx);
 
     // Prepare resampler
     ret = swr_alloc_set_opts2(
@@ -536,25 +572,25 @@ static void destroy_sdl3() {
 // Public interface functions implementation
 // =====================================================================================================================
 
-int msp_init() {
+bool msp_init() {
     // Initialize command q which transfers commands from main thread to playback thread
     g_command_q = calloc(1, sizeof(*g_command_q));
     msp_q_init(g_command_q);
 
     // Init SDL audio output system
     if (!init_sdl3()) {
-        return -1;
+        return false;
     }
 
     // Create playback thread
     if (pthread_create(&g_playback_thread, nullptr, playback_thread_func, nullptr) != 0) {
-        return -1;
+        return false;
     }
 
     // Set ffmpeg logging level to avoid console noise in release
     av_log_set_level(FFMPEG_LOG_LEVEL);
 
-    return 0;
+    return true;
 }
 
 void msp_deinit(void) {
@@ -617,6 +653,14 @@ bool msp_get_position(unsigned int *out_position_ms) {
     }
 
     *out_position_ms = pos > delay_ms ? pos - delay_ms : 0;
+    return true;
+}
+
+bool msp_get_duration(unsigned int *out_duration_ms) {
+    if (!g_playback_context || g_playback_context->duration_ms == 0) return false;
+
+    *out_duration_ms = g_playback_context->duration_ms;
+
     return true;
 }
 

@@ -15,11 +15,13 @@ int main() {
     msp_init();
 
     const char *song1 = "/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3";
-    const char *song2 = "../testapp/test.ogg";
+    // const char *song2 = "../testapp/test.ogg";
 
-    msp_play(song2);
-    sleep_ms(1500);
+    unsigned int dur = 0;
     msp_play(song1);
+    sleep_ms(300);
+    msp_get_duration(&dur);
+    printf("Duration: %u ms\n", dur);
 
     const char *keys[] = {"artist", "title"};
     constexpr size_t keys_count = sizeof(keys) / sizeof(keys[0]);
@@ -37,7 +39,7 @@ int main() {
         if (msp_get_position(&pos)) {
             printf("position: %02u:%02u\n", pos / 1000 / 60, pos / 1000 % 60);
         }
-        sleep_ms(500);
+        sleep_ms(1337);
     }
 
     msp_deinit();
