@@ -26,6 +26,11 @@ int main() {
     msp_set_position(1000 * 0);
     msp_set_position(1000 * 200);
 
+    unsigned int pos = 0;
+    if (msp_get_position(&pos)) {
+        printf("Current pos: %i ms\n", pos);
+    }
+
     // sleep(1);
     // msp_toggle_pause();
     // sleep(1);

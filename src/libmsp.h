@@ -2,13 +2,6 @@
 
 #include <pthread.h>
 
-// Player statuses
-typedef enum {
-    MSP_STATUS_IDLE = 0,
-    MSP_STATUS_PLAYING,
-    MSP_STATUS_PAUSED
-} msp_status_t;
-
 // =====================================================================================================================
 // Init and de-init functions.
 // =====================================================================================================================
@@ -36,9 +29,8 @@ bool msp_set_position(unsigned int position_ms);
 // =====================================================================================================================
 // Data obtaining interface
 // =====================================================================================================================
-msp_status_t msp_get_status(void);
 
-int msp_get_position_sec(void);
+bool msp_get_position(unsigned int *out_position);
 
 // Opens file, reads its metadata. Does NOT require msp_init(), can be called freely at any moment.
 // Returns values for requested metadata keys (or NULL if not found),
@@ -48,4 +40,5 @@ char **msp_get_metadata(const char *filename, const char **keys, size_t keys_cou
 
 // Frees msp_get_metadata() result
 void msp_free_metadata_result(char **values, size_t keys_count);
+
 // =====================================================================================================================

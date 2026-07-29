@@ -63,11 +63,17 @@ static SDL_AudioStream *g_sdl_stream = nullptr;
 static uint32_t g_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
 //======================================================================================================================
 
+typedef enum {
+    MSP_STATUS_IDLE = 0,
+    MSP_STATUS_PLAYING,
+    MSP_STATUS_PAUSED
+} player_status_t;
+
 // Playback context, used to carry playback thread context between playback thread functions
 typedef struct {
     // libmsp specific data
     char *filename; // path to file we want to play
-    msp_status_t status; // playback status, used to control playback thread
+    player_status_t status; // playback status, used to control playback thread
 
     // ffmpeg data about the current file: stream, decoder, metadata etc
     int audio_stream_index;
@@ -561,6 +567,11 @@ bool msp_set_position(const uint32_t position_ms) {
         .payload.position_ms = position_ms
     };
     return exec_command(command);
+}
+
+bool msp_get_position(unsigned int *out_position_ms) {
+    *out_position_ms = 1337;
+    return true;
 }
 
 bool msp_toggle_pause(void) {
