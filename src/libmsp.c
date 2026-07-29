@@ -649,9 +649,10 @@ bool msp_set_position(const uint32_t position_ms) {
 }
 
 bool msp_get_position(uint32_t *out_position_ms) {
-    if (!g_playback_context || g_playback_context->status == MSP_STATUS_IDLE) return false;
+    playback_context_t *ctx = g_playback_context; // local copy just in case
+    if (!ctx || ctx->status == MSP_STATUS_IDLE) return false;
 
-    const uint32_t pos = g_playback_context->decoded_pos_ms;
+    const uint32_t pos = ctx->decoded_pos_ms;
 
     // Make correction: <playback position> = <decoded position> - <sdl audio device delay>
     uint32_t delay_ms = 0;
@@ -666,9 +667,10 @@ bool msp_get_position(uint32_t *out_position_ms) {
 }
 
 bool msp_get_duration(uint32_t *out_duration_ms) {
-    if (!g_playback_context || g_playback_context->duration_ms == 0) return false;
+    playback_context_t *ctx = g_playback_context; // local copy just in case
+    if (!ctx || ctx->duration_ms == 0) return false;
 
-    *out_duration_ms = g_playback_context->duration_ms;
+    *out_duration_ms = ctx->duration_ms;
 
     return true;
 }
