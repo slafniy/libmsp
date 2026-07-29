@@ -23,8 +23,6 @@
 
 #pragma once
 
-#include <pthread.h>
-
 /**
  * Initializes the library. Should be called once before any other functions with a little exception:
  * the only allowed function to call without initialization is msp_get_metadata().
@@ -98,7 +96,7 @@ bool msp_get_duration(unsigned int *out_duration_ms);
  * @param keys_count how many keys you've passed into function.
  * @return pointer to char* values, you can access them by indexer. Count is equal to keys_count.
  */
-char **msp_get_metadata(const char *filename, const char **keys, size_t keys_count);
+char **msp_get_metadata(const char *filename, const char **keys, long unsigned int keys_count);
 
 /**
  * Frees msp_get_metadata() result
@@ -113,4 +111,4 @@ char **msp_get_metadata(const char *filename, const char **keys, size_t keys_cou
     }
     msp_free_metadata_result(values, keys_count);
  */
-void msp_free_metadata_result(char **values, size_t keys_count);
+void msp_free_metadata_result(char **values, long unsigned int keys_count);
