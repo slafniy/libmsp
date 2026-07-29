@@ -50,10 +50,10 @@ static constexpr char MAIN_THREAD_NAME[] = "libmsp main";
 
 // Params of SDL audio output
 static constexpr int SAMPLE_RATE = 48000;
-static constexpr int AUDIO_OUT_FORMAT = SDL_AUDIO_F32;
+static constexpr int AUDIO_OUT_FORMAT = SDL_AUDIO_S16;  // should be in pair with SAMPLE_FORMAT!
 static constexpr SDL_AudioSpec AUDIO_OUT_SPEC = {.freq = SAMPLE_RATE, .format = AUDIO_OUT_FORMAT, .channels = 2};
 static constexpr AVChannelLayout CHANNEL_LAYOUT = AV_CHANNEL_LAYOUT_STEREO; // should match msp_sdl_wanted_spec!
-static constexpr auto SAMPLE_FORMAT = AV_SAMPLE_FMT_FLT; // this is for float in sdl2
+static constexpr int SAMPLE_FORMAT = AV_SAMPLE_FMT_S16; // should match AUDIO_OUT_FORMAT!
 
 static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.5f;
 static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait if playback buffer is already full
