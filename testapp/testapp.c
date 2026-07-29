@@ -35,9 +35,9 @@ int main() {
     unsigned int pos;
     for (int i = 0; i < 100; i++) {
         if (msp_get_position(&pos)) {
-            printf("get_position = %u ms\n", pos);
+            printf("position: %02u:%02u\n", pos / 1000 / 60, pos / 1000 % 60);
         }
-        sleep(1);
+        sleep_ms(500);
     }
 
     msp_deinit();

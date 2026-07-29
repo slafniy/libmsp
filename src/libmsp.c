@@ -449,6 +449,7 @@ static void *playback_thread_func(void *_) {
         bool has_command = false;
 
         // If playing - quickly check if we got a new command and not pause decoding
+        // TODO: add some sync here. If we decode fast enough, we still have plenty time and can sleep more
         if (g_playback_context->status == MSP_STATUS_PLAYING) {
             has_command = msp_q_try_pop(g_command_q, &command);
         } else {
@@ -603,8 +604,17 @@ bool msp_set_position(const uint32_t position_ms) {
 bool msp_get_position(unsigned int *out_position_ms) {
     if (!g_playback_context || g_playback_context->status == MSP_STATUS_IDLE) return false;
 
-    *out_position_ms = g_playback_context->decoded_pos_ms;
+    const uint32_t pos = g_playback_context->decoded_pos_ms;
 
+    // Make correction: <playback position> = <decoded position> - <sdl audio device delay>
+    uint32_t delay_ms = 0;
+    if (g_sdl_stream) {
+        uint32_t queued = SDL_GetAudioStreamQueued(g_sdl_stream);
+        constexpr uint32_t bytes_per_frame = AUDIO_OUT_SPEC.channels * SDL_AUDIO_BYTESIZE(AUDIO_OUT_SPEC.format);
+        delay_ms = queued * 1000 / (AUDIO_OUT_SPEC.freq * bytes_per_frame);
+    }
+
+    *out_position_ms = pos > delay_ms ? pos - delay_ms : 0;
     return true;
 }
 
