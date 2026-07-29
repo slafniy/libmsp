@@ -50,10 +50,10 @@ static constexpr char MAIN_THREAD_NAME[] = "libmsp main";
 
 // Params of SDL audio output
 static constexpr int SAMPLE_RATE = 48000;
-static constexpr int AUDIO_OUT_FORMAT = SDL_AUDIO_S16;  // should be in pair with SAMPLE_FORMAT!
+static constexpr int AUDIO_OUT_FORMAT = SDL_AUDIO_S16; // should be in pair with SAMPLE_FORMAT!
 static constexpr SDL_AudioSpec AUDIO_OUT_SPEC = {.freq = SAMPLE_RATE, .format = AUDIO_OUT_FORMAT, .channels = 2};
 static constexpr AVChannelLayout CHANNEL_LAYOUT = AV_CHANNEL_LAYOUT_STEREO; // should match msp_sdl_wanted_spec!
-static constexpr int SAMPLE_FORMAT = AV_SAMPLE_FMT_S16; // should match AUDIO_OUT_FORMAT!
+static constexpr enum AVSampleFormat SAMPLE_FORMAT = AV_SAMPLE_FMT_S16; // should match AUDIO_OUT_FORMAT!
 
 static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.5f;
 static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait if playback buffer is already full
@@ -80,6 +80,8 @@ typedef struct {
     // decoder temporary data
     AVPacket *av_packet;
     AVFrame *av_frame;
+    uint8_t *out_buffer;
+    int out_buffer_samples;
 
     // resampler data
     SwrContext *swr_context;
@@ -106,6 +108,7 @@ static void destroy_playback_context(playback_context_t **playback_context) {
     if (ctx_ptr->swr_context) swr_free(&ctx_ptr->swr_context);
     if (ctx_ptr->av_packet) av_packet_free(&ctx_ptr->av_packet);
     if (ctx_ptr->av_frame) av_frame_free(&ctx_ptr->av_frame);
+    if (ctx_ptr->out_buffer) av_freep(&ctx_ptr->out_buffer);
     free(ctx_ptr);
     *playback_context = nullptr;
     g_playback_context = nullptr;
@@ -121,6 +124,8 @@ static void clear_playback_context(playback_context_t *ctx) {
     ctx->decoded_pos_ms = 0;
     ctx->audio_stream_index = -1;
     ctx->status = MSP_STATUS_IDLE;
+    ctx->out_buffer_samples = 0;
+    av_freep(&ctx->out_buffer);
     // Close per-file-unique contexts
     if (ctx->av_format_context) avformat_close_input(&ctx->av_format_context);
     if (ctx->av_codec_context) avcodec_free_context(&ctx->av_codec_context);
@@ -419,28 +424,34 @@ static void decode_next_frame(playback_context_t *ctx) {
                 AV_ROUND_UP
             );
 
-            // Allocate intermediate buffer
-            uint8_t *out_buffer = nullptr;
-            int out_line_size = 0;
-            ret = av_samples_alloc(
-                &out_buffer,
-                &out_line_size,
-                AUDIO_OUT_SPEC.channels,
-                (int) max_dst_nb_samples,
-                SAMPLE_FORMAT,
-                0
-            );
+            // If current buffer is too small - realloc
+            if (max_dst_nb_samples > ctx->out_buffer_samples) {
+                av_freep(&ctx->out_buffer);
+                ctx->out_buffer_samples = 0;
 
-            if (ret < 0) {
-                LOG_ERROR(PLAYBACK_THREAD_NAME, "Failed to allocate audio samples buffer");
-                av_frame_unref(ctx->av_frame);
-                break;
+                int out_line_size = 0;
+                ret = av_samples_alloc(
+                    &ctx->out_buffer,
+                    &out_line_size,
+                    AUDIO_OUT_SPEC.channels,
+                    (int) max_dst_nb_samples,
+                    SAMPLE_FORMAT,
+                    0
+                );
+
+                if (ret < 0) {
+                    LOG_ERROR(PLAYBACK_THREAD_NAME, "Failed to allocate audio samples buffer");
+                    av_frame_unref(ctx->av_frame);
+                    return;
+                }
+
+                ctx->out_buffer_samples = (int) max_dst_nb_samples;
             }
 
             // Resample!
             const int dst_nb_samples = swr_convert(
                 ctx->swr_context,
-                &out_buffer,
+                &ctx->out_buffer,
                 (int) max_dst_nb_samples,
                 // ReSharper disable once CppRedundantCastExpression
                 // ffmpeg API expects const uint8_t *const *, AVFrame::data is uint8_t *[]
@@ -448,17 +459,15 @@ static void decode_next_frame(playback_context_t *ctx) {
                 ctx->av_frame->nb_samples
             );
 
-
             if (dst_nb_samples > 0) {
                 constexpr uint32_t bytes_per_sample = SDL_AUDIO_BYTESIZE(AUDIO_OUT_SPEC.format);
                 constexpr uint32_t bytes_per_frame = (uint32_t) AUDIO_OUT_SPEC.channels * bytes_per_sample;
                 const uint32_t buffer_size = (uint32_t) dst_nb_samples * bytes_per_frame;
 
                 // Send data for playback
-                SDL_PutAudioStreamData(g_sdl_stream, out_buffer, (int32_t) buffer_size);
+                SDL_PutAudioStreamData(g_sdl_stream, ctx->out_buffer, (int32_t) buffer_size);
             }
 
-            av_freep(&out_buffer);
             av_frame_unref(ctx->av_frame);
         }
     }
@@ -685,15 +694,6 @@ char **msp_get_metadata(const char *filename, const char **keys, const uint64_t 
         LOG_ERROR(MAIN_THREAD_NAME, "ffmpeg cannot open %s", filename);
         return nullptr;
     }
-
-    // Looking for container format
-    ret = avformat_find_stream_info(ctx, nullptr);
-    if (ret < 0) {
-        handle_ffmpeg_error("avformat_find_stream_info", ret);
-        LOG_ERROR(MAIN_THREAD_NAME, "ffmpeg cannot find stream info in file %s", filename);
-        return nullptr;
-    }
-    LOG_DEBUG(MAIN_THREAD_NAME, "Container <%s> is found in %s", ctx->iformat->name, filename);
 
     // It's a caller responsibility to free this memory
     char **results = calloc(keys_count, sizeof(char *));
