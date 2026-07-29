@@ -328,7 +328,7 @@ static void update_playback_position(playback_context_t *ctx) {
 // Playback thread function. Decodes a frame and sends data to SDL2
 static void decode_next_frame(playback_context_t *ctx) {
     // do not load CPU too much, keep only small buffer of decoded data
-    if (SDL_GetAudioStreamQueued(g_sdl_stream) > g_sdl_queue_size_bytes) {
+    while (SDL_GetAudioStreamQueued(g_sdl_stream) > g_sdl_queue_size_bytes) {
         SDL_Delay(ALLOWED_AUDIO_DELAY_MS);
     }
 
