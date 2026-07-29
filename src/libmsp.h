@@ -30,7 +30,7 @@ bool msp_set_position(unsigned int position_ms);
 // Data obtaining interface
 // =====================================================================================================================
 
-bool msp_get_position(unsigned int *out_position);
+bool msp_get_position(unsigned int *out_position_ms);
 
 // Opens file, reads its metadata. Does NOT require msp_init(), can be called freely at any moment.
 // Returns values for requested metadata keys (or NULL if not found),

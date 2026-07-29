@@ -54,15 +54,6 @@ static constexpr auto SAMPLE_FORMAT = AV_SAMPLE_FMT_FLT; // this is for float in
 static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.5f;
 static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait if playback buffer is already full
 
-//======================================================================================================================
-// Global variables
-//======================================================================================================================
-static pthread_t g_playback_thread; // handles commands and uses ffmpeg libs to open and play files
-static msp_command_q_t *g_command_q = nullptr; // queue for commands for playback thread
-static SDL_AudioStream *g_sdl_stream = nullptr;
-static uint32_t g_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
-//======================================================================================================================
-
 typedef enum {
     MSP_STATUS_IDLE = 0,
     MSP_STATUS_PLAYING,
@@ -72,8 +63,10 @@ typedef enum {
 // Playback context, used to carry playback thread context between playback thread functions
 typedef struct {
     // libmsp specific data
-    char *filename; // path to file we want to play
-    player_status_t status; // playback status, used to control playback thread
+    char *filename; // path to current file
+    _Atomic player_status_t status; // playback status, used to control playback thread
+    _Atomic uint32_t decoded_pos_ms; // current playback decoder position, slightly ahead of playback
+    _Atomic uint32_t duration_ms; // full track length
 
     // ffmpeg data about the current file: stream, decoder, metadata etc
     int audio_stream_index;
@@ -88,6 +81,16 @@ typedef struct {
     SwrContext *swr_context;
 } playback_context_t;
 
+//======================================================================================================================
+// Global variables
+//======================================================================================================================
+static pthread_t g_playback_thread; // handles commands and uses ffmpeg libs to open and play files
+static msp_command_q_t *g_command_q = nullptr; // queue for commands for playback thread
+static SDL_AudioStream *g_sdl_stream = nullptr;
+static uint32_t g_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
+static playback_context_t *g_playback_context = nullptr;
+//======================================================================================================================
+
 // ReSharper disable once CppDeclaratorNeverUsed - it is used via macro.
 // Final de-initialization before application exit.
 static void destroy_playback_context(playback_context_t **playback_context) {
@@ -101,6 +104,7 @@ static void destroy_playback_context(playback_context_t **playback_context) {
     if (ctx_ptr->av_frame) av_frame_free(&ctx_ptr->av_frame);
     free(ctx_ptr);
     *playback_context = nullptr;
+    g_playback_context = nullptr;
 }
 
 // Playback thread function. Clears context, preparing it for the new file
@@ -109,7 +113,9 @@ static void clear_playback_context(playback_context_t *ctx) {
         free(ctx->filename);
         ctx->filename = nullptr;
     }
+    ctx->decoded_pos_ms = 0;
     ctx->audio_stream_index = -1;
+    ctx->status = MSP_STATUS_IDLE;
     // Close per-file-unique contexts
     if (ctx->av_format_context) avformat_close_input(&ctx->av_format_context);
     if (ctx->av_codec_context) avcodec_free_context(&ctx->av_codec_context);
@@ -211,13 +217,13 @@ static bool open_new_file(playback_context_t *ctx) {
 }
 
 // Playback thread function. Sets current playback position and clears buffers to make transition seamless
-static bool playback_set_position(playback_context_t *ctx, int position_ms) {
+static bool playback_set_position(playback_context_t *ctx, const uint32_t position_ms) {
     if (!ctx || !ctx->av_format_context || ctx->audio_stream_index < 0) return false;
 
     const AVStream *stream = ctx->av_format_context->streams[ctx->audio_stream_index];
 
     const int64_t target_ts = av_rescale_q(
-        (int64_t) position_ms,
+        position_ms,
         (AVRational){1, 1000},
         stream->time_base
     );
@@ -300,6 +306,25 @@ static void handle_command(playback_context_t *playback_context, const msp_comma
     }
 }
 
+// Playback thread function. Updates current_pos_ms in context
+static void update_playback_position(playback_context_t *ctx) {
+    const int64_t pts = ctx->av_frame->best_effort_timestamp;
+    // Normal case - should work almost always
+    if (pts != AV_NOPTS_VALUE) {
+        const AVStream *stream = ctx->av_format_context->streams[ctx->audio_stream_index];
+        const int64_t frame_pts_ms = av_rescale_q(pts, stream->time_base, (AVRational){1, 1000});
+        ctx->decoded_pos_ms = (uint32_t) frame_pts_ms;
+    }
+    // If something in the file is broken
+    else {
+        // TODO: implement case if needed
+        // Should be something like
+        // ctx->accumulated_pts_ms += ((int64_t)ctx->av_frame->nb_samples * 1000) /
+        // ctx->av_codec_context->sample_rate;
+        // And update accumulated_pts_ms on position change
+    }
+}
+
 // Playback thread function. Decodes a frame and sends data to SDL2
 static void decode_next_frame(playback_context_t *ctx) {
     // do not load CPU too much, keep only small buffer of decoded data
@@ -345,6 +370,9 @@ static void decode_next_frame(playback_context_t *ctx) {
                 handle_ffmpeg_error("avcodec_receive_frame", ret);
                 break;
             }
+
+            // We have the frame, so we can try to update current playback position
+            update_playback_position(ctx);
 
             // Calculate buffer size, another ffmpeg magic
             const int64_t max_dst_nb_samples = av_rescale_rnd(
@@ -402,15 +430,18 @@ static void decode_next_frame(playback_context_t *ctx) {
 }
 
 static void *playback_thread_func(void *_) {
+    // initialize global playback context and bind cleanup function for it
     DEFERRED_CLEANUP(destroy_playback_context)
             // ReSharper disable once CppDFAMemoryLeak
-            playback_context_t *playback_context = calloc(1, sizeof(*playback_context));
-    if (!playback_context) {
+            playback_context_t *ctx = calloc(1, sizeof(*g_playback_context));
+    g_playback_context = ctx;
+
+    if (!g_playback_context) {
         LOG_ERROR(PLAYBACK_THREAD_NAME, "Failed to create playback context");
         return nullptr;
     }
 
-    playback_context->status = MSP_STATUS_IDLE;
+    g_playback_context->status = MSP_STATUS_IDLE;
 
     // Playback main loop. Listens commands and executes them, and decodes frames if needed
     while (true) {
@@ -418,7 +449,7 @@ static void *playback_thread_func(void *_) {
         bool has_command = false;
 
         // If playing - quickly check if we got a new command and not pause decoding
-        if (playback_context->status == MSP_STATUS_PLAYING) {
+        if (g_playback_context->status == MSP_STATUS_PLAYING) {
             has_command = msp_q_try_pop(g_command_q, &command);
         } else {
             // if not playing - just wait for a command
@@ -434,12 +465,12 @@ static void *playback_thread_func(void *_) {
 
         // Handle other commands
         if (has_command) {
-            handle_command(playback_context, &command);
+            handle_command(g_playback_context, &command);
         }
 
         // Decode and send next frame to audio device, if needed.
-        if (playback_context->status == MSP_STATUS_PLAYING) {
-            decode_next_frame(playback_context);
+        if (g_playback_context->status == MSP_STATUS_PLAYING) {
+            decode_next_frame(g_playback_context);
         }
     }
 
@@ -570,7 +601,10 @@ bool msp_set_position(const uint32_t position_ms) {
 }
 
 bool msp_get_position(unsigned int *out_position_ms) {
-    *out_position_ms = 1337;
+    if (!g_playback_context || g_playback_context->status == MSP_STATUS_IDLE) return false;
+
+    *out_position_ms = g_playback_context->decoded_pos_ms;
+
     return true;
 }
 

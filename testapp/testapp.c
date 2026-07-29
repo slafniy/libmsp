@@ -4,12 +4,21 @@
 
 #include <unistd.h>
 
+static void sleep_ms(const int milliseconds) {
+    struct timespec ts;
+    ts.tv_sec = milliseconds / 1000;
+    ts.tv_nsec = milliseconds % 1000 * 1000000L;
+    nanosleep(&ts, nullptr);
+}
+
 int main() {
     msp_init();
 
     const char *song1 = "/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3";
-    // const char *song1 = "../testapp/test.ogg";
+    const char *song2 = "../testapp/test.ogg";
 
+    msp_play(song2);
+    sleep_ms(1500);
     msp_play(song1);
 
     const char *keys[] = {"artist", "title"};
@@ -22,22 +31,15 @@ int main() {
 
     msp_set_volume(0.75f);
     msp_set_position(1000 * 150);
-    sleep(3);
-    msp_set_position(1000 * 0);
-    msp_set_position(1000 * 200);
 
-    unsigned int pos = 0;
-    if (msp_get_position(&pos)) {
-        printf("Current pos: %i ms\n", pos);
+    unsigned int pos;
+    for (int i = 0; i < 100; i++) {
+        if (msp_get_position(&pos)) {
+            printf("get_position = %u ms\n", pos);
+        }
+        sleep(1);
     }
 
-    // sleep(1);
-    // msp_toggle_pause();
-    // sleep(1);
-    // msp_toggle_pause();
-    // sleep(1);
-
-    sleep(3);
     msp_deinit();
     return 0;
 }
