@@ -3,7 +3,7 @@
 
 #include "../src/libmsp.h"
 
-const char *song1 = "/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3";
+const char *song1 = "/home/slafniy/Music/ct_faac-adts.aac";
 
 static void sleep_ms(const int milliseconds) {
     struct timespec ts;

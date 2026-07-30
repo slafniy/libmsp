@@ -307,6 +307,8 @@ static void handle_command(playback_context_t *playback_context, const msp_comma
             LOG_INFO(PLAYBACK_THREAD_NAME, "New music file: %s", playback_context->filename);
             if (!open_new_file(playback_context)) {
                 LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot play %s", playback_context->filename);
+                playback_context->status = MSP_STATUS_ERROR;
+                break;
             }
             playback_context->status = MSP_STATUS_PLAYING;
             SDL_ResumeAudioStreamDevice(g_sdl_stream);

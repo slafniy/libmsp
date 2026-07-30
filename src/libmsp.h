@@ -4,7 +4,7 @@
  *
  * Features:
  *  - non-blocking audio playback (uses background thread)
- *  - supports mp3, ogg, m4a, flac
+ *  - supports mp3, ogg (opus & vorbis), m4a, flac, wav
  *  - pause/resume
  *  - seeking
  *  - volume control
@@ -32,7 +32,8 @@ typedef enum {
     MSP_STATUS_UNINITIALIZED = 0, // special case to return when the context does not exist yet/anymore
     MSP_STATUS_IDLE,
     MSP_STATUS_PLAYING,
-    MSP_STATUS_PAUSED
+    MSP_STATUS_PAUSED,
+    MSP_STATUS_ERROR
 } player_status_t;
 
 /**
