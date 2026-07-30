@@ -18,7 +18,7 @@ int main() {
     printf("status: %i\n", msp_get_status());
     sleep_ms(100);
     printf("status: %i\n", msp_get_status());
-    msp_set_volume(0.5);
+    msp_set_volume(0.5f);
 
     const char *song1 = "/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3";
     // const char *song2 = "../testapp/test.ogg";
@@ -33,7 +33,7 @@ int main() {
         printf("status: %i\n", msp_get_status());
         sleep_ms(100);
         printf("status: %i\n", msp_get_status());
-        msp_get_duration(&dur);
+        dur = msp_get_duration();
         printf("Duration: %u ms\n", dur);
 
         msp_toggle_pause();
@@ -49,9 +49,9 @@ int main() {
 
         msp_set_position(1000 * 15);
 
-        unsigned int pos;
         for (int i = 0; i < 2; i++) {
-            if (msp_get_position(&pos)) {
+            const unsigned int pos = msp_get_position();
+            if (pos > 0) {
                 printf("position: %02u:%02u\n", pos / 1000 / 60, pos / 1000 % 60);
             }
             sleep_ms(500);

@@ -66,8 +66,8 @@ typedef struct {
     // libmsp specific data
     char *filename; // path to current file
     _Atomic player_status_t status; // playback status, used to control playback thread
-    _Atomic uint32_t decoded_pos_ms; // current playback decoder position, slightly ahead of playback
-    _Atomic uint32_t duration_ms; // full track length
+    _Atomic int64_t decoded_pos_ms; // current playback decoder position, slightly ahead of playback
+    _Atomic int64_t duration_ms; // full track length
 
     // ffmpeg data about the current file: stream, decoder, metadata etc
     int audio_stream_index;
@@ -347,7 +347,7 @@ static void update_playback_position(playback_context_t *ctx) {
     if (pts != AV_NOPTS_VALUE) {
         const AVStream *stream = ctx->av_format_context->streams[ctx->audio_stream_index];
         const int64_t frame_pts_ms = av_rescale_q(pts, stream->time_base, (AVRational){1, 1000});
-        ctx->decoded_pos_ms = (uint32_t) frame_pts_ms;
+        ctx->decoded_pos_ms = frame_pts_ms;
     }
     // If something in the file is broken
     else {
@@ -625,31 +625,28 @@ bool msp_set_position(const uint32_t position_ms) {
     return exec_command(command);
 }
 
-bool msp_get_position(uint32_t *out_position_ms) {
+int64_t msp_get_position() {
     playback_context_t *ctx = g_playback_context; // local copy just in case
-    if (!ctx || ctx->status == MSP_STATUS_IDLE) return false;
+    if (!ctx || ctx->status == MSP_STATUS_IDLE) return -1;
 
-    const uint32_t pos = ctx->decoded_pos_ms;
+    const int64_t pos = ctx->decoded_pos_ms;
 
     // Make correction: <playback position> = <decoded position> - <sdl audio device delay>
-    uint32_t delay_ms = 0;
+    int64_t delay_ms = 0;
     if (g_sdl_stream) {
-        uint32_t queued = SDL_GetAudioStreamQueued(g_sdl_stream);
+        const uint32_t queued = SDL_GetAudioStreamQueued(g_sdl_stream);
         constexpr uint32_t bytes_per_frame = AUDIO_OUT_SPEC.channels * SDL_AUDIO_BYTESIZE(AUDIO_OUT_SPEC.format);
         delay_ms = queued * 1000 / (AUDIO_OUT_SPEC.freq * bytes_per_frame);
     }
 
-    *out_position_ms = pos > delay_ms ? pos - delay_ms : 0;
-    return true;
+    return pos > delay_ms ? pos - delay_ms : 0;
 }
 
-bool msp_get_duration(uint32_t *out_duration_ms) {
+int64_t msp_get_duration() {
     playback_context_t *ctx = g_playback_context; // local copy just in case
-    if (!ctx || ctx->duration_ms == 0) return false;
+    if (!ctx || ctx->duration_ms == 0) return -1;
 
-    *out_duration_ms = ctx->duration_ms;
-
-    return true;
+    return ctx->duration_ms;
 }
 
 player_status_t msp_get_status() {

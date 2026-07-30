@@ -49,21 +49,22 @@ void msp_deinit(void);
 
 /**
  * Requests to open file and start playback in background. Does not block.
- * Note that you cannot be sure that playback is started in a moment this function returns.
+ * @note You cannot be sure that playback is started in a moment this function returns.
  * @param filename file to play.
- * @return true. There is no any special handling for now.
+ * @return true if the command successfully placed in the command queue, false otherwise.
  */
 bool msp_play(const char *filename);
 
 /**
  * Toggle playback pause. Does nothing if nothing's open.
- * @return true. There is no special handling.
+ * @note You cannot call msp_get_status() right after and expect the new status.
+ * @return true if the command successfully placed in the command queue, false otherwise.
  */
 bool msp_toggle_pause(void);
 
 /**
  * Stops current playback. Works like a pause. DO NOT USE https://github.com/slafniy/libmsp/issues/5
- * @return true
+ * @return true if the command successfully placed in the command queue, false otherwise.
  */
 bool msp_stop(void);
 
@@ -83,24 +84,25 @@ bool msp_set_position(uint32_t position_ms);
 
 /**
  * Gets current playback position in milliseconds.
- * Note: calling this right after msp_play() most likely will return false and out_position_ms == 0.
+ * @note calling this right after msp_play() most likely will return -1.
  * You should give some time for playback to start.
- * @param out_position_ms current playback position, make sense only if function returned true
- * @return true if it can find playback position, false otherwise (no file, broken file, not opened yet)
+ * @return current playback position if it knows it, -1 otherwise (no file, broken file, not opened yet)
  */
-bool msp_get_position(uint32_t *out_position_ms);
+int64_t msp_get_position();
 
 /**
  * Receives a duration of current file. To get a sentient result make sure libmsp is initialized and some file
  * is opened.
- * @param out_duration_ms - current file duration in milliseconds.
- * @return true if got something sentient, false otherwise.
+ * @return current file duration in milliseconds, or -1 if there is no file opened.
  */
-bool msp_get_duration(uint32_t *out_duration_ms);
+int64_t msp_get_duration();
 
 /**
  * Used to obtain current playback status.
  * @return player_status_t enum value. Returns MSP_STATUS_UNINITIALIZED in case if playback context is not initialized.
+ * @note You cannot expect this function to return the new status when called right
+ * after playback control commands, e.g. msp_toggle_pause(), because playback thread works in background.
+ * The delay won't be huge though. You can expect it to react in several ms.
  */
 player_status_t msp_get_status();
 
