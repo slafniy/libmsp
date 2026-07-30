@@ -3,7 +3,7 @@
 
 #include "../src/libmsp.h"
 
-const char *song1 = "/home/slafniy/Music/ct_faac-adts.aac";
+const char *song1 = "/home/slafniy/Music/song_44100_lame_160vbr.mp3";
 const char *song2 = "/home/slafniy/Music/song_44100_lame_56cbr.mp3";
 
 static void sleep_ms(const int milliseconds) {

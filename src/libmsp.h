@@ -4,7 +4,7 @@
  *
  * Features:
  *  - non-blocking audio playback (uses background thread)
- *  - supports mp3, ogg (opus & vorbis), m4a, flac, wav
+ *  - supports .mp3, .ogg (opus & vorbis), .m4a, .flac, .wav, .aac
  *  - pause/resume
  *  - seeking
  *  - volume control
