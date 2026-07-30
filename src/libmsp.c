@@ -59,11 +59,7 @@ constexpr int MAX_STACK_SAMPLES = 8192; // should be enough for S16 * 2 channels
 static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.25f;
 static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait if playback buffer is already full
 
-typedef enum {
-    MSP_STATUS_IDLE = 0,
-    MSP_STATUS_PLAYING,
-    MSP_STATUS_PAUSED
-} player_status_t;
+
 
 // Playback context, used to carry playback thread context between playback thread functions
 typedef struct {
@@ -654,6 +650,12 @@ bool msp_get_duration(uint32_t *out_duration_ms) {
     *out_duration_ms = ctx->duration_ms;
 
     return true;
+}
+
+player_status_t msp_get_status() {
+    playback_context_t *ctx = g_playback_context; // local copy just in case
+    if (!ctx) return MSP_STATUS_UNINITIALIZED;
+    return ctx->status;
 }
 
 bool msp_toggle_pause(void) {

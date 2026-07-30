@@ -26,6 +26,16 @@
 #include <stdint.h>
 
 /**
+ * Describes current playback thread status
+ */
+typedef enum {
+    MSP_STATUS_UNINITIALIZED = 0, // special case to return when the context does not exist yet/anymore
+    MSP_STATUS_IDLE,
+    MSP_STATUS_PLAYING,
+    MSP_STATUS_PAUSED
+} player_status_t;
+
+/**
  * Initializes the library. Should be called once before any other functions with a little exception:
  * the only allowed function to call without initialization is msp_get_metadata().
  * @return true if initialized successfully, false otherwise.
@@ -87,6 +97,12 @@ bool msp_get_position(uint32_t *out_position_ms);
  * @return true if got something sentient, false otherwise.
  */
 bool msp_get_duration(uint32_t *out_duration_ms);
+
+/**
+ * Used to obtain current playback status.
+ * @return player_status_t enum value. Returns MSP_STATUS_UNINITIALIZED in case if playback context is not initialized.
+ */
+player_status_t msp_get_status();
 
 /**
  * Opens file, reads its metadata. Does NOT require msp_init(), can be called freely at any moment.
