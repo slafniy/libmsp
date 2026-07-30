@@ -4,6 +4,7 @@
 #include "../src/libmsp.h"
 
 const char *song1 = "/home/slafniy/Music/ct_faac-adts.aac";
+const char *song2 = "/home/slafniy/Music/song_44100_lame_56cbr.mp3";
 
 static void sleep_ms(const int milliseconds) {
     struct timespec ts;
@@ -48,17 +49,17 @@ int main() {
 
     msp_toggle_pause();
     print_metadata();
-    msp_set_position(1000 * 29);
+    msp_set_position(1000 * 1);
     msp_toggle_pause();
     print_status_with_delay(10);
-    sleep_ms(1500);
+    sleep_ms(2500);
 
     msp_stop();
     sleep_ms(50);
     print_duration();
     print_status_with_delay(10);
 
-    msp_play(song1);
+    msp_play(song2);
 
     sleep_ms(4000);
     msp_deinit();

@@ -39,7 +39,7 @@ RUN ./configure \
     --enable-avutil \
     --enable-swresample \
     --enable-decoder=mp3,aac,flac,vorbis,opus,alac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_f64le,pcm_u8 \
-    --enable-demuxer=mp3,mov,flac,ogg,wav \
+    --enable-demuxer=mp3,mov,flac,ogg,wav,aac \
     --enable-parser=mpegaudio,aac,flac,opus \
     --enable-protocol=file
 
