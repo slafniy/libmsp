@@ -60,7 +60,6 @@ static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.25f;
 static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait if playback buffer is already full
 
 
-
 // Playback context, used to carry playback thread context between playback thread functions
 typedef struct {
     // libmsp specific data
@@ -80,7 +79,7 @@ typedef struct {
 
     // resampler data
     SwrContext *swr_context;
-    alignas(16) uint8_t out_buffer[MAX_STACK_SAMPLES * 2 * 2];  // 2 channels * 2 bytes for S16 format
+    alignas(16) uint8_t out_buffer[MAX_STACK_SAMPLES * 2 * 2]; // 2 channels * 2 bytes for S16 format
 } playback_context_t;
 
 //======================================================================================================================
@@ -251,7 +250,7 @@ static bool open_new_file(playback_context_t *ctx) {
 }
 
 // Playback thread function. Sets current playback position and clears buffers to make transition seamless
-static bool playback_set_position(playback_context_t *ctx, const uint32_t position_ms) {
+static bool playback_set_position(playback_context_t *ctx, const int64_t position_ms) {
     if (!ctx || !ctx->av_format_context || ctx->audio_stream_index < 0) return false;
 
     const AVStream *stream = ctx->av_format_context->streams[ctx->audio_stream_index];
@@ -288,16 +287,20 @@ static bool playback_set_position(playback_context_t *ctx, const uint32_t positi
     return true;
 }
 
+// Stops playback. Does nothing wrong if there is no one.
+static void stop_playback(playback_context_t *ctx) {
+    // clear audio stream
+    SDL_PauseAudioStreamDevice(g_sdl_stream);
+    SDL_ClearAudioStream(g_sdl_stream);
+    // clear existing data from context
+    clear_playback_context(ctx);
+}
+
 // Playback thread function. Determines what thread should do in the next iteration and sets playback_context->status
 static void handle_command(playback_context_t *playback_context, const msp_command_t *command) {
     switch (command->type) {
         case MSP_PLAY:
-            // clear audio stream
-            SDL_PauseAudioStreamDevice(g_sdl_stream);
-            SDL_ClearAudioStream(g_sdl_stream);
-            // clear existing data from context
-            clear_playback_context(playback_context);
-
+            stop_playback(playback_context);
             // open new file
             playback_context->filename = strdup(command->payload.filename);
             free(command->payload.filename);
@@ -309,8 +312,7 @@ static void handle_command(playback_context_t *playback_context, const msp_comma
             SDL_ResumeAudioStreamDevice(g_sdl_stream);
             break;
         case MSP_STOP:
-            playback_context->status = MSP_STATUS_IDLE;
-            SDL_ClearAudioStream(g_sdl_stream);
+            stop_playback(playback_context);
             LOG_INFO(PLAYBACK_THREAD_NAME, "Stopping current playback");
             break;
         case MSP_TOGGLE_PAUSE:
@@ -329,9 +331,9 @@ static void handle_command(playback_context_t *playback_context, const msp_comma
             LOG_INFO(PLAYBACK_THREAD_NAME, "Setting volume to %f", command->payload.volume);
             break;
         case MSP_SET_POSITION:
-            LOG_INFO(PLAYBACK_THREAD_NAME, "Setting playback position to %i ms", command->payload.position_ms);
+            LOG_INFO(PLAYBACK_THREAD_NAME, "Setting playback position to %ld ms", command->payload.position_ms);
             if (!playback_set_position(playback_context, command->payload.position_ms)) {
-                LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot seek to position %i ms", command->payload.position_ms);
+                LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot seek to position %ld ms", command->payload.position_ms);
             }
             break;
         default:
@@ -620,7 +622,7 @@ bool msp_set_volume(float volume) {
 bool msp_set_position(const uint32_t position_ms) {
     const msp_command_t command = {
         .type = MSP_SET_POSITION,
-        .payload.position_ms = position_ms
+        .payload.position_ms = (int64_t) position_ms
     };
     return exec_command(command);
 }

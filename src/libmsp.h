@@ -71,14 +71,14 @@ bool msp_stop(void);
 /**
  * Adjusts volume level.
  * @param volume wanted volume level, from 0.0 to 1.0. Any value out of this range will be silently clamped to it.
- * @return true. No special handling.
+ * @return true if the command successfully placed in the command queue, false otherwise.
  */
 bool msp_set_volume(float volume);
 
 /**
  * Tries to set a new current playback position. Silently clamps any out of track range values.
- * @param position_ms
- * @return true. No special handling.
+ * @param position_ms the place in the file where you want to move current playback.
+ * @return true if the command successfully placed in the command queue, false otherwise.
  */
 bool msp_set_position(uint32_t position_ms);
 

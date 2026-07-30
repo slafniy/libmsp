@@ -3,7 +3,7 @@
 
 #include "../src/libmsp.h"
 
-#include <unistd.h>
+const char *song1 = "/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3";
 
 static void sleep_ms(const int milliseconds) {
     struct timespec ts;
@@ -12,55 +12,55 @@ static void sleep_ms(const int milliseconds) {
     nanosleep(&ts, nullptr);
 }
 
-int main() {
-    printf("status: %i\n", msp_get_status());
-    msp_init();
-    printf("status: %i\n", msp_get_status());
-    sleep_ms(100);
-    printf("status: %i\n", msp_get_status());
-    msp_set_volume(0.5f);
+static void print_status_with_delay(const int delay_ms) {
+    sleep_ms(delay_ms);
+    printf("Status: %i\n", msp_get_status());
+}
 
-    const char *song1 = "/mnt/data/Music/Avatar/2023 - Dance Devil Dance/01. Dance Devil Dance.mp3";
-    // const char *song2 = "../testapp/test.ogg";
-
-    for (int j = 0; j < 2; j++) {
-        unsigned int dur = 0;
-        printf("status: %i\n", msp_get_status());
-        msp_play(song1);
-        printf("status: %i\n", msp_get_status());
-        sleep_ms(100);
-        msp_toggle_pause();
-        printf("status: %i\n", msp_get_status());
-        sleep_ms(100);
-        printf("status: %i\n", msp_get_status());
-        dur = msp_get_duration();
-        printf("Duration: %u ms\n", dur);
-
-        msp_toggle_pause();
-
-        const char *keys[] = {"artist", "title"};
-        constexpr size_t keys_count = sizeof(keys) / sizeof(keys[0]);
-        char **values = msp_get_metadata(song1, keys, keys_count);
-        if (values) {
-            printf("NOW PLAYING >> %s - %s\n", values[0], values[1]);
-        }
-        msp_free_metadata_result(values, keys_count);
-
-
-        msp_set_position(1000 * 15);
-
-        for (int i = 0; i < 2; i++) {
-            const unsigned int pos = msp_get_position();
-            if (pos > 0) {
-                printf("position: %02u:%02u\n", pos / 1000 / 60, pos / 1000 % 60);
-            }
-            sleep_ms(500);
+static void print_metadata(void) {
+    const char *keys[] = {"artist", "title", "album", "date"};
+    constexpr size_t keys_count = sizeof(keys) / sizeof(keys[0]);
+    char **values = msp_get_metadata(song1, keys, keys_count);
+    if (values) {
+        for (size_t i = 0; i < keys_count; i++) {
+            printf(">> %s: %s\n", keys[i], values[i]);
         }
     }
+    msp_free_metadata_result(values, keys_count);
+}
 
+static void print_duration(void) {
+    const auto dur = msp_get_duration();
+    printf("Duration: %ld ms\n", dur);
+}
+
+int main() {
+    print_status_with_delay(0);
+    print_duration();
+    msp_init();
+    msp_set_volume(0.8f);
+    print_status_with_delay(10);
+
+    msp_play(song1);
+    print_duration();
+    print_status_with_delay(10);
+    print_duration();
+
+    msp_toggle_pause();
+    print_metadata();
+    msp_set_position(1000 * 29);
+    msp_toggle_pause();
+    print_status_with_delay(10);
+    sleep_ms(1500);
+
+    msp_stop();
+    sleep_ms(50);
+    print_duration();
+    print_status_with_delay(10);
+
+    msp_play(song1);
+
+    sleep_ms(4000);
     msp_deinit();
-    printf("status: %i\n", msp_get_status());
-    sleep_ms(100);
-    printf("status: %i\n", msp_get_status());
     return 0;
 }

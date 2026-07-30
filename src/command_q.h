@@ -39,7 +39,7 @@ typedef struct {
         // If msp_q_push() returns true - worker thread MUST free() *filename
         // If msp_q_push() returns false (q overflow case) - caller thread MUST free() it itself
         char *filename;
-        uint32_t position_ms;
+        int64_t position_ms;
         float volume;
     } payload;
 } msp_command_t;
