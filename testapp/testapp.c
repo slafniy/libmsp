@@ -3,8 +3,7 @@
 
 #include "../src/libmsp.h"
 
-const char *song1 = "/home/slafniy/Music/song_44100_lame_160vbr.mp3";
-const char *song2 = "/home/slafniy/Music/song_44100_lame_56cbr.mp3";
+const char *song1 = "../testapp/test.ogg";
 
 static void sleep_ms(const int milliseconds) {
     struct timespec ts;
@@ -18,10 +17,10 @@ static void print_status_with_delay(const int delay_ms) {
     printf("Status: %i\n", msp_get_status());
 }
 
-static void print_metadata(void) {
-    const char *keys[] = {"artist", "title", "album", "date"};
+static void print_metadata(const char *filename) {
+    const char *keys[] = {"artist", "title", "album", "year", "date", "filename", "album artist", "composer"};
     constexpr size_t keys_count = sizeof(keys) / sizeof(keys[0]);
-    char **values = msp_get_metadata(song1, keys, keys_count);
+    char **values = msp_get_metadata(filename, keys, keys_count);
     if (values) {
         for (size_t i = 0; i < keys_count; i++) {
             printf(">> %s: %s\n", keys[i], values[i]);
@@ -39,7 +38,7 @@ int main() {
     print_status_with_delay(0);
     print_duration();
     msp_init();
-    msp_set_volume(0.8f);
+    msp_set_volume(0.35f);
     print_status_with_delay(10);
 
     msp_play(song1);
@@ -48,7 +47,7 @@ int main() {
     print_duration();
 
     msp_toggle_pause();
-    print_metadata();
+    print_metadata(song1);
     msp_set_position(1000 * 1);
     msp_toggle_pause();
     print_status_with_delay(10);
@@ -59,9 +58,10 @@ int main() {
     print_duration();
     print_status_with_delay(10);
 
-    msp_play(song2);
+    msp_play(song1);
 
-    sleep_ms(4000);
+    sleep_ms(2000);
     msp_deinit();
+    print_metadata(song1);
     return 0;
 }
