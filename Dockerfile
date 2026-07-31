@@ -1,4 +1,7 @@
-FROM ubuntu:24.04 AS builder
+#=======================================================================================================================
+# STAGE 1: Build ffmpeg static libs
+#=======================================================================================================================
+FROM ubuntu:24.04 AS ffmpeg-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -52,13 +55,23 @@ RUN make -j$(nproc)
 
 RUN make install DESTDIR=/install
 
-# Now, copy the library sources into container and build libmsp
+#=======================================================================================================================
+# STAGE 1.1 Prepare ffmpeg static libs for output
+#=======================================================================================================================
+FROM scratch AS ffmpeg-export
+COPY --from=ffmpeg-builder /install/usr/local/include/ /include
+COPY --from=ffmpeg-builder /install/usr/local/lib/ /lib
+
+#=======================================================================================================================
+# STAGE 2 Build libmsp
+#=======================================================================================================================
+FROM ffmpeg-builder AS libmsp-builder
 
 RUN mkdir "/libmsp"
 
 WORKDIR /libmsp
 
-# copy ffmpeg static libs where cmake whants them (like host build)
+# copy ffmpeg static libs where cmake whants them (to use the same scheme as local build)
 RUN mkdir "ffmpeg-static" && cp -r /install/usr/local/* ./ffmpeg-static
 
 COPY src /libmsp/src
@@ -67,3 +80,10 @@ COPY CMakeLists.txt /libmsp
 
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Release
 RUN cmake --build build  -j $(nproc)
+
+#=======================================================================================================================
+# STAGE 2.1 Prepare libmsp distribution for output
+#=======================================================================================================================
+FROM scratch AS libmsp-export
+COPY --from=libmsp-builder /libmsp/build/libmsp.so* /
+COPY --from=libmsp-builder /libmsp/build/testapp /
