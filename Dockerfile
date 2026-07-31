@@ -2,7 +2,7 @@ FROM ubuntu:24.04 AS builder
 
 RUN apt-get update && apt-get install -y git
 
-RUN git clone https://git.ffmpeg.org/ffmpeg.git -b release/9.0
+RUN git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git -b release/9.0
 
 WORKDIR /ffmpeg
 
