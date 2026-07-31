@@ -7,3 +7,6 @@ cmake-build-release
 
 # ffmpeg build results
 ffmpeg-static
+
+# docker build result
+dist

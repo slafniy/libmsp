@@ -10,13 +10,17 @@ clean-ffmpeg:
     rm -rf {{ ffmpeg_static_dir }}
     mkdir -p {{ ffmpeg_static_dir }}
 
-build-ffmpeg: clean-ffmpeg
+clean-dist:
+    rm -rf ./dist
+
+build-docker: clean-dist
     #!/usr/bin/env bash
     podman build -t builder -f {{ dockerfile }} .
     podman create --name builder-temp builder
 
     podman cp builder-temp:/install/usr/local/include {{ ffmpeg_static_dir }}/
     podman cp builder-temp:/install/usr/local/lib {{ ffmpeg_static_dir }}/
+    podman cp builder-temp:/libmsp/build ./dist
 
     podman rm builder-temp
 
