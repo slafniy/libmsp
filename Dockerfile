@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim AS builder
+FROM ubuntu:24.04 AS builder
 
 RUN apt-get update && apt-get install -y git
 
@@ -11,6 +11,7 @@ RUN apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     zlib1g-dev \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -46,3 +47,19 @@ RUN ./configure \
 RUN make -j$(nproc)
 
 RUN make install DESTDIR=/install
+
+# Now, copy the library sources into container and build libmsp
+
+RUN mkdir "/libmsp"
+
+WORKDIR /libmsp
+
+# copy ffmpeg static libs where cmake whants them (like host build)
+RUN mkdir "ffmpeg-static" && cp -r /install/usr/local/* ./ffmpeg-static
+
+COPY src /libmsp/src
+COPY testapp /libmsp/testapp
+COPY CMakeLists.txt /libmsp
+
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release
+RUN cmake --build build --target libmsp -j $(nproc)
