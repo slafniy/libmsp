@@ -11,8 +11,16 @@ include(FetchContent)
 FetchContent_Declare(
         SDL3
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-        GIT_TAG        release-3.4.12
+        GIT_TAG release-3.4.12
 )
+
+# Require ALSA because it's a base, the rest are optional
+# But in the docker container we install them too just in case, it doesn't affect library size mush
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(ALSA REQUIRED alsa)
+pkg_check_modules(PULSE QUIET libpulse)
+pkg_check_modules(PIPEWIRE QUIET libpipewire-0.3)
+pkg_check_modules(SNDIO QUIET sndio)
 
 set(SDL_UNIX_CONSOLE_BUILD ON CACHE BOOL "" FORCE)
 set(SDL_UNSUPPORTED ON CACHE BOOL "" FORCE)

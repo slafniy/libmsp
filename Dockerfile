@@ -6,12 +6,16 @@ RUN git clone https://git.ffmpeg.org/ffmpeg.git -b release/9.0
 
 WORKDIR /ffmpeg
 
-# ffmpeg build dependencies
+# ffmpeg and libmsp build dependencies
 RUN apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     zlib1g-dev \
     cmake \
+    libpulse-dev \
+    libasound2-dev \
+    libjack-jackd2-dev \
+    libsndio-dev \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -62,4 +66,4 @@ COPY testapp /libmsp/testapp
 COPY CMakeLists.txt /libmsp
 
 RUN cmake -B build -DCMAKE_BUILD_TYPE=Release
-RUN cmake --build build --target libmsp -j $(nproc)
+RUN cmake --build build  -j $(nproc)
