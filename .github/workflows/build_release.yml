@@ -1,0 +1,32 @@
+name: Build libmsp release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Just
+        uses: extractions/setup-just@v2
+
+      - name: Build libmsp in container
+        run:  just build-docker
+
+      - name: Publish libmsp
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./dist/libmsp.so.*.*.*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
