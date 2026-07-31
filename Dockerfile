@@ -1,14 +1,8 @@
 FROM ubuntu:24.04 AS builder
 
-RUN apt-get update && apt-get install -y git
-
-#RUN git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git -b release/9.0
-RUN git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git -b release/9.0
-
-WORKDIR /ffmpeg
-
-# ffmpeg and libmsp build dependencies
-RUN apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
     build-essential \
     pkg-config \
     zlib1g-dev \
@@ -18,6 +12,11 @@ RUN apt-get install -y --no-install-recommends \
     libjack-jackd2-dev \
     libsndio-dev \
     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /ffmpeg
+
+#RUN git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git -b release/9.0 .
+RUN git clone --depth 1 https://github.com/FFmpeg/FFmpeg.git -b release/9.0 .
 
 
 # I can enable ASM with this var, but ffmpeg would not link with my shared libmsp.so.
