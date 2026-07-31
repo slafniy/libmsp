@@ -50,8 +50,8 @@ add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c
         src/command_q.c)
 set_target_properties(libmsp PROPERTIES
         PREFIX ""
-        VERSION 1.0.0
-        SOVERSION 1
+        VERSION 0.0.1
+        SOVERSION 0
 )
 
 target_include_directories(libmsp PRIVATE
