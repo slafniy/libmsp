@@ -22,35 +22,16 @@ podman-build-ffmpeg:
     podman build --target ffmpeg-export -t builder -f {{ dockerfile }} --output type=local,dest={{ ffmpeg_static_dir }} .
     echo "ffmpeg build is finished, artifacts: {{ ffmpeg_static_dir }}"
 
-#clean-ffmpeg:
-#    #!/usr/bin/env bash
-#    set -e
-#    rm -rf {{ ffmpeg_static_dir }}
-#    mkdir -p {{ ffmpeg_static_dir }}
-#
-#clean-dist:
-#    rm -rf ./dist
-#
-#build-docker: clean-dist
-#    #!/usr/bin/env bash
-#    podman build --target  -t builder -f {{ dockerfile }} .
-#    podman create --name builder-temp builder
-#    podman cp builder-temp:/libmsp/build ./dist
-#
-#    podman rm builder-temp
-#
-#clean:
-#    cmake --build cmake-build-release --target clean -j $(nproc)
-#
-#build:
-#    cmake --build cmake-build-release --target libmsp -j $(nproc)
-#
-#build-docker-ffmpeg:
-#        #!/usr/bin/env bash
-#        podman build -t builder -f {{ dockerfile }} .
-#        podman create --name builder-temp builder
-#        mkdir -p {{ ffmpeg_static_dir }}
-#        podman cp builder-temp:/install/usr/local/include {{ ffmpeg_static_dir }}/
-#        podman cp builder-temp:/install/usr/local/lib {{ ffmpeg_static_dir }}/
-#
-#        podman rm builder-temp
+# Build libmsp DEBUG locally (rebuilds ffmpeg static libs in podman anyway)
+build: podman-build-ffmpeg
+    cmake --build cmake-build-debug --target libmsp -j $(nproc)
+
+# Build libmsp RELEASE locally. Not recommended for distribution.
+build-release:
+    cmake --build cmake-build-release --target libmsp -j $(nproc)
+
+# Clean cmake
+clean:
+    cmake --build cmake-build-release --target clean -j $(nproc)
+    cmake --build cmake-build-debug --target clean -j $(nproc)
+
