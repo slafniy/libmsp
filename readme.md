@@ -6,10 +6,10 @@ A small linux shared library which plays music files. Written in C.
 ### Features
 - Depends only on libc (2.39+). If you have something equal or more modern than Ubuntu 24 it should just work.
 - Supports the most popular music formats (mp3, flac, m4a, wav, aac, ogg) with different codecs in them.
-- Built on top of ffmpeg and SDL3. I'm not that crazy (yet) to write so much code.
+- Built on top of ffmpeg and SDL3. I'm not that crazy (yet) to write so much code by myself.
 
 ### How it works / how to use
-Public library interface is defined in `src/libmsp.h`.  
+Public library interface is defined and documented in [libmsp.h](src/libmsp.h) header. 
 
 libmsp uses two threads:
 1. _Main thread_ to push user commands to the _playback thread_ with one exception: `msp_get_metadata()` 
@@ -24,7 +24,7 @@ Usage general steps are:
 
 For usage example see [testapp.c](testapp/testapp.c) (WIP)
 
-Minimal code sample:
+The minimal code sample:
 ```c++
 #include "../src/libmsp.h"
 #include <unistd.h>
@@ -65,10 +65,13 @@ Builds ffmpeg-static in podman, copies it to the host, and builds libmsp locally
 
 ### Why it exists?
 1. Because I can :) 
-2. I have a pet-project music player with Godot UI, and it needs a good playback backend.  
+2. I have a pet-project music player with Godot UI (because why not), and it needs a good playback backend.  
 I tried LibVLC, and it is great, but it has a bunch of dependencies, basically it requires whole vlc package to work, 
 and C# wrapper nuget package for LibVLC does not include any native libs at all. And I want a self-contained binary.  
 Also, Godot does not include native libs into distribution by default, so you have to deal with LD_LIBRARY_PATH hacks etc.  
 So, I decided to build own minimalistic library and ship it in nuget package. [C# wrapper is here.](https://github.com/slafniy/libmsp-sharp)  
 3. This is a great opportunity for me to code something in a system language.
+
+#### What MSP stands for?
+It stands for "My Stupid Player"
 
