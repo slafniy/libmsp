@@ -3,6 +3,8 @@
 #=======================================================================================================================
 FROM ubuntu:24.04 AS ffmpeg-builder
 
+RUN echo ">>> libc version: " && ldd --version | grep -i libc
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
