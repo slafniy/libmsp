@@ -50,8 +50,8 @@ int main() {
 First of all, you can check ```just --list``` and see full list of available recipes.  
 
 The build itself consists of two parts: 1. ffmpeg static build 2. every other stuff build. The 1st part historically  
-builds only in a container, because I wanted to get reproducible builds while figuring out what demuxer and codec I can  
-and what I can't turn off. So for now even for local build you need podman.  
+builds only in a container, because I wanted to get reproducible builds while figuring out what demuxers and codecs I can 
+and what I can't turn off. So for now even for a local build you need podman.  
 The 2nd part - library itself - could be built in a container or locally.
 
 #### Full build in podman
