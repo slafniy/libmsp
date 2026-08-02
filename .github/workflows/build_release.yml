@@ -17,6 +17,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install latest Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
       - name: Install Just
         uses: extractions/setup-just@v2
 
