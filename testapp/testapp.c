@@ -36,6 +36,7 @@ static void print_duration(const playback_context_t *ctx) {
 
 int main() {
     playback_context_t *player = msp_init();
+    msp_play(player, song1);
     print_status_with_delay(player, 0);
     print_duration(player);
     msp_set_volume(player, 0.35f);

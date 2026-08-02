@@ -505,18 +505,6 @@ static void destroy_sdl3(playback_context_t *ctx) {
 
 static void *playback_thread_func(void *arg) {
     playback_context_t *ctx = arg;
-
-    // Init SDL audio output system
-    if (!init_sdl3(ctx)) {
-        LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot initialize SDL3 audio stream");
-        return nullptr;
-    }
-
-    // Initialize command q which transfers commands from main thread to playback thread
-    ctx->command_q = calloc(1, sizeof(*ctx->command_q));
-    msp_q_init(ctx->command_q);
-
-
     ctx->status = MSP_STATUS_IDLE;
 
     // Playback main loop. Listens commands and executes them, and decodes frames if needed
@@ -552,9 +540,6 @@ static void *playback_thread_func(void *arg) {
         }
     }
 
-    msp_q_destroy(ctx->command_q);
-    destroy_sdl3(ctx);
-
     // ReSharper disable once CppDFAMemoryLeak - DEFERRED_CLEANUP macro should do the job
     return nullptr;
 }
@@ -566,9 +551,22 @@ static void *playback_thread_func(void *arg) {
 playback_context_t *msp_init() {
     playback_context_t *ctx = calloc(1, sizeof(*ctx));
     if (!ctx) {
-        LOG_ERROR(MAIN_THREAD_NAME, "Failed to create playback context");
+        LOG_ERROR(MAIN_THREAD_NAME, "Failed to allocate playback context");
         return nullptr;
     }
+
+    // Init SDL audio output system
+    if (!init_sdl3(ctx)) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Cannot initialize SDL3 audio stream");
+        return nullptr;
+    }
+
+    // Initialize command q which transfers commands from main thread to playback thread
+    ctx->command_q = calloc(1, sizeof(*ctx->command_q));
+    if (!ctx->command_q) {
+        LOG_ERROR(MAIN_THREAD_NAME, "msp_init(): cannot allocate memory for a command queue");
+    }
+    msp_q_init(ctx->command_q);
 
     // Create playback thread
     if (pthread_create(&ctx->playback_thread, nullptr, playback_thread_func, ctx) != 0) {
@@ -593,6 +591,9 @@ void msp_deinit(playback_context_t *ctx) {
     }
     // joining thread, it should free its context and finish itself
     pthread_join(ctx->playback_thread, nullptr);
+
+    msp_q_destroy(ctx->command_q);
+    destroy_sdl3(ctx);
 }
 
 bool msp_play(const playback_context_t *ctx, const char *filename) {
