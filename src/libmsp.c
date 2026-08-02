@@ -508,7 +508,6 @@ static void *playback_thread_func(void *arg) {
         }
     }
 
-    // ReSharper disable once CppDFAMemoryLeak - DEFERRED_CLEANUP macro should do the job
     return nullptr;
 }
 
