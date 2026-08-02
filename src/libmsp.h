@@ -37,16 +37,22 @@ typedef enum {
 } player_status_t;
 
 /**
- * Initializes the library. Should be called once before any other functions with a little exception:
- * the only allowed function to call without initialization is msp_get_metadata().
- * @return true if initialized successfully, false otherwise.
+ * Handler for a playback context.
  */
-bool msp_init(void);
+typedef struct playback_context_t playback_context_t;
 
 /**
- * Gracefully destroys inner library context. Should be called once when you do not need to use the library anymore.
+ * Initializes the playback context. Returns context pointer which is used for other functions with a little exception:
+ * the only allowed function to call without initialization is msp_get_metadata().
+ * @return pointer to initialized playback context
  */
-void msp_deinit(void);
+playback_context_t *msp_init(void);
+
+/**
+ * Gracefully destroys playback context. Should be called once per every msp_init().
+ * @param ctx pointer returned by msp_init(). An attempt to de-init NULL only causes a warning in the log.
+ */
+void msp_deinit(playback_context_t *ctx);
 
 /**
  * Requests to open file and start playback in background. Does not block.
@@ -54,34 +60,34 @@ void msp_deinit(void);
  * @param filename file to play.
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
-bool msp_play(const char *filename);
+bool msp_play(const playback_context_t *ctx, const char *filename);
 
 /**
  * Toggle playback pause. Does nothing if nothing's open.
  * @note You cannot call msp_get_status() right after and expect the new status.
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
-bool msp_toggle_pause(void);
+bool msp_toggle_pause(const playback_context_t *ctx);
 
 /**
  * Stops current playback. Works like a pause. DO NOT USE https://github.com/slafniy/libmsp/issues/5
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
-bool msp_stop(void);
+bool msp_stop(const playback_context_t *ctx);
 
 /**
  * Adjusts volume level.
  * @param volume wanted volume level, from 0.0 to 1.0. Any value out of this range will be silently clamped to it.
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
-bool msp_set_volume(float volume);
+bool msp_set_volume(const playback_context_t *ctx, float volume);
 
 /**
  * Tries to set a new current playback position. Silently clamps any out of track range values.
  * @param position_ms the place in the file where you want to move current playback.
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
-bool msp_set_position(uint32_t position_ms);
+bool msp_set_position(const playback_context_t *ctx, uint32_t position_ms);
 
 /**
  * Gets current playback position in milliseconds.
@@ -89,14 +95,14 @@ bool msp_set_position(uint32_t position_ms);
  * You should give some time for playback to start.
  * @return current playback position if it knows it, -1 otherwise (no file, broken file, not opened yet)
  */
-int64_t msp_get_position();
+int64_t msp_get_position(const playback_context_t *ctx);
 
 /**
  * Receives a duration of current file. To get a sentient result make sure libmsp is initialized and some file
  * is opened.
  * @return current file duration in milliseconds, or -1 if there is no file opened.
  */
-int64_t msp_get_duration();
+int64_t msp_get_duration(const playback_context_t *ctx);
 
 /**
  * Used to obtain current playback status.
@@ -105,7 +111,7 @@ int64_t msp_get_duration();
  * after playback control commands, e.g. msp_toggle_pause(), because playback thread works in background.
  * The delay won't be huge though. You can expect it to react in several ms.
  */
-player_status_t msp_get_status();
+player_status_t msp_get_status(const playback_context_t *ctx);
 
 /**
  * Opens file, reads its metadata. Does NOT require msp_init(), can be called freely at any moment.

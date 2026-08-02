@@ -12,9 +12,9 @@ static void sleep_ms(const int milliseconds) {
     nanosleep(&ts, nullptr);
 }
 
-static void print_status_with_delay(const int delay_ms) {
+static void print_status_with_delay(const playback_context_t *ctx, const int delay_ms) {
     sleep_ms(delay_ms);
-    printf("Status: %i\n", msp_get_status());
+    printf("Status: %i\n", msp_get_status(ctx));
 }
 
 static void print_metadata(const char *filename) {
@@ -29,39 +29,39 @@ static void print_metadata(const char *filename) {
     msp_free_metadata_result(values, keys_count);
 }
 
-static void print_duration(void) {
-    const auto dur = msp_get_duration();
+static void print_duration(const playback_context_t *ctx) {
+    const auto dur = msp_get_duration(ctx);
     printf("Duration: %ld ms\n", dur);
 }
 
 int main() {
-    print_status_with_delay(0);
-    print_duration();
-    msp_init();
-    msp_set_volume(0.35f);
-    print_status_with_delay(10);
+    playback_context_t *player = msp_init();
+    print_status_with_delay(player, 0);
+    print_duration(player);
+    msp_set_volume(player, 0.35f);
+    print_status_with_delay(player, 10);
 
-    msp_play(song1);
-    print_duration();
-    print_status_with_delay(10);
-    print_duration();
+    msp_play(player, song1);
+    print_duration(player);
+    print_status_with_delay(player, 10);
+    print_duration(player);
 
-    msp_toggle_pause();
+    msp_toggle_pause(player);
     print_metadata(song1);
-    msp_set_position(1000 * 1);
-    msp_toggle_pause();
-    print_status_with_delay(10);
+    msp_set_position(player, 1000 * 1);
+    msp_toggle_pause(player);
+    print_status_with_delay(player, 10);
     sleep_ms(2500);
 
-    msp_stop();
+    msp_stop(player);
     sleep_ms(50);
-    print_duration();
-    print_status_with_delay(10);
+    print_duration(player);
+    print_status_with_delay(player, 10);
 
-    msp_play(song1);
+    msp_play(player, song1);
 
     sleep_ms(2000);
-    msp_deinit();
+    msp_deinit(player);
     print_metadata(song1);
     return 0;
 }

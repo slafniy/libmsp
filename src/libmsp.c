@@ -61,7 +61,7 @@ static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait 
 
 
 // Playback context, used to carry playback thread context between playback thread functions
-typedef struct {
+typedef struct playback_context_t {
     // libmsp specific data
     char *filename; // path to current file
     _Atomic player_status_t status; // playback status, used to control playback thread
@@ -80,17 +80,14 @@ typedef struct {
     // resampler data
     SwrContext *swr_context;
     alignas(16) uint8_t out_buffer[MAX_STACK_SAMPLES * 2 * 2]; // 2 channels * 2 bytes for S16 format
+
+    // playback thread data
+    pthread_t playback_thread; // handles commands and uses ffmpeg libs to open and play files
+    msp_command_q_t *command_q; // queue for commands for playback thread
+    SDL_AudioStream *sdl_stream;
+    uint32_t sdl_queue_size_bytes; // to determine SDL max queue size depending on audio parameters
 } playback_context_t;
 
-//======================================================================================================================
-// Global variables
-//======================================================================================================================
-static pthread_t g_playback_thread; // handles commands and uses ffmpeg libs to open and play files
-static msp_command_q_t *g_command_q = nullptr; // queue for commands for playback thread
-static SDL_AudioStream *g_sdl_stream = nullptr;
-static uint32_t g_sdl_queue_size_bytes = 0; // to determine SDL max queue size depending on audio parameters
-static playback_context_t *g_playback_context = nullptr;
-//======================================================================================================================
 
 // ReSharper disable once CppDeclaratorNeverUsed - it is used via macro.
 // Final de-initialization before application exit.
@@ -105,7 +102,6 @@ static void destroy_playback_context(playback_context_t **playback_context) {
     if (ctx_ptr->av_frame) av_frame_free(&ctx_ptr->av_frame);
     free(ctx_ptr);
     *playback_context = nullptr;
-    g_playback_context = nullptr;
 }
 
 // Playback thread function. Clears context, preparing it for the new file
@@ -280,8 +276,8 @@ static bool playback_set_position(playback_context_t *ctx, const int64_t positio
     if (ctx->swr_context) {
         swr_convert(ctx->swr_context, nullptr, 0, nullptr, 0);
     }
-    if (g_sdl_stream) {
-        SDL_ClearAudioStream(g_sdl_stream);
+    if (ctx->sdl_stream) {
+        SDL_ClearAudioStream(ctx->sdl_stream);
     }
 
     return true;
@@ -290,51 +286,51 @@ static bool playback_set_position(playback_context_t *ctx, const int64_t positio
 // Stops playback. Does nothing wrong if there is no one.
 static void stop_playback(playback_context_t *ctx) {
     // clear audio stream
-    SDL_PauseAudioStreamDevice(g_sdl_stream);
-    SDL_ClearAudioStream(g_sdl_stream);
+    SDL_PauseAudioStreamDevice(ctx->sdl_stream);
+    SDL_ClearAudioStream(ctx->sdl_stream);
     // clear existing data from context
     clear_playback_context(ctx);
 }
 
 // Playback thread function. Determines what thread should do in the next iteration and sets playback_context->status
-static void handle_command(playback_context_t *playback_context, const msp_command_t *command) {
+static void handle_command(playback_context_t *ctx, const msp_command_t *command) {
     switch (command->type) {
         case MSP_PLAY:
-            stop_playback(playback_context);
+            stop_playback(ctx);
             // open new file
-            playback_context->filename = strdup(command->payload.filename);
+            ctx->filename = strdup(command->payload.filename);
             free(command->payload.filename);
-            LOG_INFO(PLAYBACK_THREAD_NAME, "New music file: %s", playback_context->filename);
-            if (!open_new_file(playback_context)) {
-                LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot play %s", playback_context->filename);
-                playback_context->status = MSP_STATUS_ERROR;
+            LOG_INFO(PLAYBACK_THREAD_NAME, "New music file: %s", ctx->filename);
+            if (!open_new_file(ctx)) {
+                LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot play %s", ctx->filename);
+                ctx->status = MSP_STATUS_ERROR;
                 break;
             }
-            playback_context->status = MSP_STATUS_PLAYING;
-            SDL_ResumeAudioStreamDevice(g_sdl_stream);
+            ctx->status = MSP_STATUS_PLAYING;
+            SDL_ResumeAudioStreamDevice(ctx->sdl_stream);
             break;
         case MSP_STOP:
-            stop_playback(playback_context);
+            stop_playback(ctx);
             LOG_INFO(PLAYBACK_THREAD_NAME, "Stopping current playback");
             break;
         case MSP_TOGGLE_PAUSE:
-            if (playback_context->status == MSP_STATUS_PLAYING) {
-                playback_context->status = MSP_STATUS_PAUSED;
-                SDL_PauseAudioStreamDevice(g_sdl_stream);
+            if (ctx->status == MSP_STATUS_PLAYING) {
+                ctx->status = MSP_STATUS_PAUSED;
+                SDL_PauseAudioStreamDevice(ctx->sdl_stream);
                 LOG_INFO(PLAYBACK_THREAD_NAME, "Pausing");
-            } else if (playback_context->status == MSP_STATUS_PAUSED) {
-                playback_context->status = MSP_STATUS_PLAYING;
-                SDL_ResumeAudioStreamDevice(g_sdl_stream);
+            } else if (ctx->status == MSP_STATUS_PAUSED) {
+                ctx->status = MSP_STATUS_PLAYING;
+                SDL_ResumeAudioStreamDevice(ctx->sdl_stream);
                 LOG_INFO(PLAYBACK_THREAD_NAME, "Resuming");
             }
             break;
         case MSP_SET_VOLUME:
-            SDL_SetAudioStreamGain(g_sdl_stream, command->payload.volume);
+            SDL_SetAudioStreamGain(ctx->sdl_stream, command->payload.volume);
             LOG_INFO(PLAYBACK_THREAD_NAME, "Setting volume to %f", command->payload.volume);
             break;
         case MSP_SET_POSITION:
             LOG_INFO(PLAYBACK_THREAD_NAME, "Setting playback position to %ld ms", command->payload.position_ms);
-            if (!playback_set_position(playback_context, command->payload.position_ms)) {
+            if (!playback_set_position(ctx, command->payload.position_ms)) {
                 LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot seek to position %ld ms", command->payload.position_ms);
             }
             break;
@@ -367,7 +363,7 @@ static void update_playback_position(playback_context_t *ctx) {
 // Playback thread function. Decodes a frame and sends data to SDL2
 static void decode_next_frame(playback_context_t *ctx) {
     // do not load CPU too much, keep only small buffer of decoded data
-    while (SDL_GetAudioStreamQueued(g_sdl_stream) > g_sdl_queue_size_bytes) {
+    while (SDL_GetAudioStreamQueued(ctx->sdl_stream) > ctx->sdl_queue_size_bytes) {
         SDL_Delay(ALLOWED_AUDIO_DELAY_MS);
     }
 
@@ -380,7 +376,7 @@ static void decode_next_frame(playback_context_t *ctx) {
             avcodec_send_packet(ctx->av_codec_context, nullptr);
 
             // Stop playback if all frames played and SDL q is empty
-            if (SDL_GetAudioStreamQueued(g_sdl_stream) == 0) {
+            if (SDL_GetAudioStreamQueued(ctx->sdl_stream) == 0) {
                 LOG_INFO(PLAYBACK_THREAD_NAME, "Playback finished (EOF)");
                 ctx->status = MSP_STATUS_IDLE;
             }
@@ -446,7 +442,7 @@ static void decode_next_frame(playback_context_t *ctx) {
                 const uint32_t buffer_size = (uint32_t) dst_nb_samples * bytes_per_frame;
 
                 // Send data for playback
-                SDL_PutAudioStreamData(g_sdl_stream, out_buffer_ptr, (int32_t) buffer_size);
+                SDL_PutAudioStreamData(ctx->sdl_stream, out_buffer_ptr, (int32_t) buffer_size);
             }
 
             av_frame_unref(ctx->av_frame);
@@ -456,19 +452,72 @@ static void decode_next_frame(playback_context_t *ctx) {
     av_packet_unref(ctx->av_packet);
 }
 
-static void *playback_thread_func(void *_) {
-    // initialize global playback context and bind cleanup function for it
-    DEFERRED_CLEANUP(destroy_playback_context)
-            // ReSharper disable once CppDFAMemoryLeak
-            playback_context_t *ctx = calloc(1, sizeof(*g_playback_context));
-    g_playback_context = ctx;
+// Sends a command to Playback thread
+static bool exec_command(const msp_command_t command, const playback_context_t *ctx) {
+    if (!msp_q_push(ctx->command_q, command)) {
+        LOG_ERROR(MAIN_THREAD_NAME, "%s command failed: the command q is full!", msp_command_to_str(command.type));
+        return false;
+    }
+    LOG_INFO(MAIN_THREAD_NAME, "%s command sent to playback thread", msp_command_to_str(command.type));
+    return true;
+}
 
-    if (!g_playback_context) {
-        LOG_ERROR(PLAYBACK_THREAD_NAME, "Failed to create playback context");
+static bool init_sdl3(playback_context_t *ctx) {
+    if (!SDL_Init(SDL_INIT_AUDIO)) {
+        LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot init SDL: %s", SDL_GetError());
+        return false;
+    }
+
+    ctx->sdl_stream = SDL_OpenAudioDeviceStream(
+        SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+        &AUDIO_OUT_SPEC,
+        nullptr,
+        nullptr);
+
+    if (!ctx->sdl_stream) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Failed to open audio device stream: %s", SDL_GetError());
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+        return false;
+    }
+
+    // Calculate audio device max allowed queue size
+    constexpr uint32_t bytes_per_sample = SDL_AUDIO_BYTESIZE(AUDIO_OUT_SPEC.format);
+    constexpr uint32_t bytes_per_frame = AUDIO_OUT_SPEC.channels * bytes_per_sample;
+    ctx->sdl_queue_size_bytes = (uint32_t) (
+        PLAYBACK_BUFFER_SIZE_SEC * (float) AUDIO_OUT_SPEC.freq * (float) bytes_per_frame);
+
+    LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", AUDIO_OUT_SPEC.freq,
+             SDL_GetAudioFormatName(AUDIO_OUT_SPEC.format));
+
+    SDL_ResumeAudioStreamDevice(ctx->sdl_stream); // unpause because it's paused by default
+    return true;
+}
+
+static void destroy_sdl3(playback_context_t *ctx) {
+    if (ctx->sdl_stream) {
+        SDL_PauseAudioStreamDevice(ctx->sdl_stream);
+        SDL_ClearAudioStream(ctx->sdl_stream);
+        SDL_DestroyAudioStream(ctx->sdl_stream);
+        ctx->sdl_stream = nullptr;
+    }
+    SDL_QuitSubSystem(SDL_INIT_AUDIO);
+}
+
+static void *playback_thread_func(void *arg) {
+    playback_context_t *ctx = arg;
+
+    // Init SDL audio output system
+    if (!init_sdl3(ctx)) {
+        LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot initialize SDL3 audio stream");
         return nullptr;
     }
 
-    g_playback_context->status = MSP_STATUS_IDLE;
+    // Initialize command q which transfers commands from main thread to playback thread
+    ctx->command_q = calloc(1, sizeof(*ctx->command_q));
+    msp_q_init(ctx->command_q);
+
+
+    ctx->status = MSP_STATUS_IDLE;
 
     // Playback main loop. Listens commands and executes them, and decodes frames if needed
     while (true) {
@@ -478,11 +527,11 @@ static void *playback_thread_func(void *_) {
         // If playing - quickly check if we got a new command and not pause decoding
         // TODO: add some sync here. If we decode fast enough, we still have plenty of time and can sleep more
         // https://github.com/slafniy/libmsp/issues/1
-        if (g_playback_context->status == MSP_STATUS_PLAYING) {
-            has_command = msp_q_try_pop(g_command_q, &command);
+        if (ctx->status == MSP_STATUS_PLAYING) {
+            has_command = msp_q_try_pop(ctx->command_q, &command);
         } else {
             // if not playing - just wait for a command
-            msp_q_pop(g_command_q, &command);
+            msp_q_pop(ctx->command_q, &command);
             has_command = true;
         }
 
@@ -494,151 +543,122 @@ static void *playback_thread_func(void *_) {
 
         // Handle other commands
         if (has_command) {
-            handle_command(g_playback_context, &command);
+            handle_command(ctx, &command);
         }
 
         // Decode and send next frame to audio device, if needed.
-        if (g_playback_context->status == MSP_STATUS_PLAYING) {
-            decode_next_frame(g_playback_context);
+        if (ctx->status == MSP_STATUS_PLAYING) {
+            decode_next_frame(ctx);
         }
     }
 
+    msp_q_destroy(ctx->command_q);
+    destroy_sdl3(ctx);
+
     // ReSharper disable once CppDFAMemoryLeak - DEFERRED_CLEANUP macro should do the job
     return nullptr;
-}
-
-// Sends a command to Playback thread
-static bool exec_command(const msp_command_t command) {
-    if (!msp_q_push(g_command_q, command)) {
-        LOG_ERROR(MAIN_THREAD_NAME, "%s command failed: the command q is full!", msp_command_to_str(command.type));
-        return false;
-    }
-    LOG_INFO(MAIN_THREAD_NAME, "%s command sent to playback thread", msp_command_to_str(command.type));
-    return true;
-}
-
-static bool init_sdl3() {
-    if (!SDL_Init(SDL_INIT_AUDIO)) {
-        LOG_ERROR(MAIN_THREAD_NAME, "Cannot init SDL: %s", SDL_GetError());
-        return false;
-    }
-
-    g_sdl_stream = SDL_OpenAudioDeviceStream(
-        SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
-        &AUDIO_OUT_SPEC,
-        nullptr,
-        nullptr);
-
-    if (!g_sdl_stream) {
-        LOG_ERROR(MAIN_THREAD_NAME, "Failed to open audio device stream: %s", SDL_GetError());
-        SDL_QuitSubSystem(SDL_INIT_AUDIO);
-        return false;
-    }
-
-    // Calculate audio device max allowed queue size
-    constexpr uint32_t bytes_per_sample = SDL_AUDIO_BYTESIZE(AUDIO_OUT_SPEC.format);
-    constexpr uint32_t bytes_per_frame = AUDIO_OUT_SPEC.channels * bytes_per_sample;
-    g_sdl_queue_size_bytes = (uint32_t) (
-        PLAYBACK_BUFFER_SIZE_SEC * (float) AUDIO_OUT_SPEC.freq * (float) bytes_per_frame);
-
-    LOG_INFO(MAIN_THREAD_NAME, "SDL device initialized! Frequency: %i, Format: %s", AUDIO_OUT_SPEC.freq,
-             SDL_GetAudioFormatName(AUDIO_OUT_SPEC.format));
-
-    SDL_ResumeAudioStreamDevice(g_sdl_stream); // unpause because it's paused by default
-    return true;
-}
-
-static void destroy_sdl3() {
-    if (g_sdl_stream) {
-        SDL_PauseAudioStreamDevice(g_sdl_stream);
-        SDL_ClearAudioStream(g_sdl_stream);
-        SDL_DestroyAudioStream(g_sdl_stream);
-        g_sdl_stream = nullptr;
-    }
-    SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
 // =====================================================================================================================
 // Public interface functions implementation
 // =====================================================================================================================
 
-bool msp_init() {
-    // Initialize command q which transfers commands from main thread to playback thread
-    g_command_q = calloc(1, sizeof(*g_command_q));
-    msp_q_init(g_command_q);
-
-    // Init SDL audio output system
-    if (!init_sdl3()) {
-        return false;
+playback_context_t *msp_init() {
+    playback_context_t *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Failed to create playback context");
+        return nullptr;
     }
 
     // Create playback thread
-    if (pthread_create(&g_playback_thread, nullptr, playback_thread_func, nullptr) != 0) {
-        return false;
+    if (pthread_create(&ctx->playback_thread, nullptr, playback_thread_func, ctx) != 0) {
+        return nullptr;
     }
 
     // Set ffmpeg logging level to avoid console noise in release
     av_log_set_level(FFMPEG_LOG_LEVEL);
 
-    return true;
+    return ctx;
 }
 
-void msp_deinit(void) {
+void msp_deinit(playback_context_t *ctx) {
+    if (!ctx) {
+        LOG_WARN(MAIN_THREAD_NAME, "An attempt to de-init NULL context. "
+                 "Possibly there's a flow in your application logic");
+        return;
+    }
     const msp_command_t exit_cmd = {.type = MSP_EXIT};
-    while (!msp_q_push(g_command_q, exit_cmd)) {
+    while (!msp_q_push(ctx->command_q, exit_cmd)) {
         // to be sure exit command passes. Shouldn't be happening much in the real life
     }
-    pthread_join(g_playback_thread, nullptr);
-    msp_q_destroy(g_command_q);
-
-    destroy_sdl3();
+    // joining thread, it should free its context and finish itself
+    pthread_join(ctx->playback_thread, nullptr);
 }
 
-bool msp_play(const char *filename) {
+bool msp_play(const playback_context_t *ctx, const char *filename) {
+    if (!ctx) {
+        LOG_WARN(MAIN_THREAD_NAME, "msp_play() called with playback context == NULL");
+        return false;
+    }
     const msp_command_t command = {
         .type = MSP_PLAY,
         .payload.filename = strdup(filename)
     };
 
-    const bool ret = exec_command(command);
+    const bool ret = exec_command(command, ctx);
     if (!ret) {
         free(command.payload.filename);
     }
     return ret;
 }
 
-bool msp_stop(void) {
+bool msp_stop(const playback_context_t *ctx) {
+    if (!ctx) {
+        LOG_WARN(MAIN_THREAD_NAME, "msp_stop() called with playback context == NULL");
+        return false;
+    }
     const msp_command_t command = {.type = MSP_STOP};
-    return exec_command(command);
+    return exec_command(command, ctx);
 }
 
-bool msp_set_volume(float volume) {
+bool msp_set_volume(const playback_context_t *ctx, float volume) {
+    if (!ctx) {
+        LOG_WARN(MAIN_THREAD_NAME, "msp_set_volume() called with playback context == NULL");
+        return false;
+    }
     volume = fmaxf(0.0f, fminf(volume, 1.0f));
     const msp_command_t command = {
         .type = MSP_SET_VOLUME,
         .payload.volume = volume
     };
-    return exec_command(command);
+    return exec_command(command, ctx);
 }
 
-bool msp_set_position(const uint32_t position_ms) {
+bool msp_set_position(const playback_context_t *ctx, const uint32_t position_ms) {
+    if (!ctx) {
+        LOG_WARN(MAIN_THREAD_NAME, "msp_set_position() called with playback context == NULL");
+        return false;
+    }
     const msp_command_t command = {
         .type = MSP_SET_POSITION,
         .payload.position_ms = (int64_t) position_ms
     };
-    return exec_command(command);
+    return exec_command(command, ctx);
 }
 
-int64_t msp_get_position() {
-    playback_context_t *ctx = g_playback_context; // local copy just in case
-    if (!ctx || ctx->status == MSP_STATUS_IDLE) return -1;
+int64_t msp_get_position(const playback_context_t *ctx) {
+    if (!ctx) {
+        LOG_WARN(MAIN_THREAD_NAME, "msp_get_position() called with playback context == NULL");
+        return false;
+    }
+    if (ctx->status == MSP_STATUS_IDLE) return -1;
 
     const int64_t pos = ctx->decoded_pos_ms;
 
     // Make correction: <playback position> = <decoded position> - <sdl audio device delay>
     int64_t delay_ms = 0;
-    if (g_sdl_stream) {
-        const uint32_t queued = SDL_GetAudioStreamQueued(g_sdl_stream);
+    if (ctx->sdl_stream) {
+        const uint32_t queued = SDL_GetAudioStreamQueued(ctx->sdl_stream);
         constexpr uint32_t bytes_per_frame = AUDIO_OUT_SPEC.channels * SDL_AUDIO_BYTESIZE(AUDIO_OUT_SPEC.format);
         delay_ms = queued * 1000 / (AUDIO_OUT_SPEC.freq * bytes_per_frame);
     }
@@ -646,22 +666,28 @@ int64_t msp_get_position() {
     return pos > delay_ms ? pos - delay_ms : 0;
 }
 
-int64_t msp_get_duration() {
-    playback_context_t *ctx = g_playback_context; // local copy just in case
-    if (!ctx || ctx->duration_ms == 0) return -1;
+int64_t msp_get_duration(const playback_context_t *ctx) {
+    if (!ctx) {
+        LOG_WARN(MAIN_THREAD_NAME, "msp_get_duration() called with playback context == NULL");
+        return false;
+    }
+    if (ctx->duration_ms == 0) return -1;
 
     return ctx->duration_ms;
 }
 
-player_status_t msp_get_status() {
-    playback_context_t *ctx = g_playback_context; // local copy just in case
+player_status_t msp_get_status(const playback_context_t *ctx) {
     if (!ctx) return MSP_STATUS_UNINITIALIZED;
     return ctx->status;
 }
 
-bool msp_toggle_pause(void) {
+bool msp_toggle_pause(const playback_context_t *ctx) {
+    if (!ctx) {
+        LOG_WARN(MAIN_THREAD_NAME, "msp_get_duration() called with playback context == NULL");
+        return false;
+    }
     const msp_command_t command = {.type = MSP_TOGGLE_PAUSE};
-    return exec_command(command);
+    return exec_command(command, ctx);
 }
 
 // This function does not interact with playback thread
