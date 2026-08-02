@@ -64,7 +64,7 @@ static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait 
 typedef struct playback_context_t {
     // libmsp specific data
     char *filename; // path to current file
-    _Atomic player_status_t status; // playback status, used to control playback thread
+    _Atomic player_status_t status; // playback status, used to check playback thread state
     _Atomic int64_t decoded_pos_ms; // current playback decoder position, slightly ahead of playback
     _Atomic int64_t duration_ms; // full track length
 
@@ -81,7 +81,7 @@ typedef struct playback_context_t {
     SwrContext *swr_context;
     alignas(16) uint8_t out_buffer[MAX_STACK_SAMPLES * 2 * 2]; // 2 channels * 2 bytes for S16 format
 
-    // playback thread data
+    // other playback thread data
     pthread_t playback_thread; // handles commands and uses ffmpeg libs to open and play files
     msp_command_q_t *command_q; // queue for commands for playback thread
     SDL_AudioStream *sdl_stream;
@@ -701,7 +701,7 @@ char **msp_get_metadata(const char *filename, const char **keys, const uint64_t 
     // Open file with deferred cleanup
     DEFERRED_CLEANUP(avformat_close_input)
             AVFormatContext *ctx = nullptr;
-    int ret = avformat_open_input(&ctx, filename, nullptr, nullptr);
+    const int ret = avformat_open_input(&ctx, filename, nullptr, nullptr);
     if (ret < 0) {
         handle_ffmpeg_error("avformat_open_input", ret);
         LOG_ERROR(MAIN_THREAD_NAME, "ffmpeg cannot open %s", filename);

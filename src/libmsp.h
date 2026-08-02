@@ -13,12 +13,12 @@
  *
  * Usage example:
  *
- *   msp_init();
- *   msp_play("music.mp3");
+ *   playback_context_t *player = msp_init();
+ *   msp_play(player, "music.mp3");
  *   ...
  *   // your code can do other tasks here, or just sleep()
  *   ...
- *   msp_deinit();
+ *   msp_deinit(player);
  */
 
 #pragma once
@@ -37,26 +37,27 @@ typedef enum {
 } player_status_t;
 
 /**
- * Handler for a playback context.
+ * Handle for a playback context.
  */
 typedef struct playback_context_t playback_context_t;
 
 /**
  * Initializes the playback context. Returns context pointer which is used for other functions with a little exception:
  * the only allowed function to call without initialization is msp_get_metadata().
- * @return pointer to initialized playback context
+ * @return handle to initialized playback context.
  */
 playback_context_t *msp_init(void);
 
 /**
  * Gracefully destroys playback context. Should be called once per every msp_init().
- * @param ctx pointer returned by msp_init(). An attempt to de-init NULL only causes a warning in the log.
+ * @param ctx handle returned by msp_init(). An attempt to de-init NULL only causes a warning in the log.
  */
 void msp_deinit(playback_context_t *ctx);
 
 /**
  * Requests to open file and start playback in background. Does not block.
  * @note You cannot be sure that playback is started in a moment this function returns.
+ * @param ctx handle returned by msp_init().
  * @param filename file to play.
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
@@ -64,6 +65,7 @@ bool msp_play(const playback_context_t *ctx, const char *filename);
 
 /**
  * Toggle playback pause. Does nothing if nothing's open.
+ * @param ctx handle returned by msp_init().
  * @note You cannot call msp_get_status() right after and expect the new status.
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
@@ -71,12 +73,14 @@ bool msp_toggle_pause(const playback_context_t *ctx);
 
 /**
  * Stops current playback. Works like a pause. DO NOT USE https://github.com/slafniy/libmsp/issues/5
+ * @param ctx handle returned by msp_init().
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
 bool msp_stop(const playback_context_t *ctx);
 
 /**
  * Adjusts volume level.
+ * @param ctx handle returned by msp_init().
  * @param volume wanted volume level, from 0.0 to 1.0. Any value out of this range will be silently clamped to it.
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
@@ -84,6 +88,7 @@ bool msp_set_volume(const playback_context_t *ctx, float volume);
 
 /**
  * Tries to set a new current playback position. Silently clamps any out of track range values.
+ * @param ctx handle returned by msp_init().
  * @param position_ms the place in the file where you want to move current playback.
  * @return true if the command successfully placed in the command queue, false otherwise.
  */
@@ -91,6 +96,7 @@ bool msp_set_position(const playback_context_t *ctx, uint32_t position_ms);
 
 /**
  * Gets current playback position in milliseconds.
+ * @param ctx handle returned by msp_init().
  * @note calling this right after msp_play() most likely will return -1.
  * You should give some time for playback to start.
  * @return current playback position if it knows it, -1 otherwise (no file, broken file, not opened yet)
@@ -100,12 +106,14 @@ int64_t msp_get_position(const playback_context_t *ctx);
 /**
  * Receives a duration of current file. To get a sentient result make sure libmsp is initialized and some file
  * is opened.
+ * @param ctx handle returned by msp_init().
  * @return current file duration in milliseconds, or -1 if there is no file opened.
  */
 int64_t msp_get_duration(const playback_context_t *ctx);
 
 /**
  * Used to obtain current playback status.
+ * @param ctx handle returned by msp_init().
  * @return player_status_t enum value. Returns MSP_STATUS_UNINITIALIZED in case if playback context is not initialized.
  * @note You cannot expect this function to return the new status when called right
  * after playback control commands, e.g. msp_toggle_pause(), because playback thread works in background.
