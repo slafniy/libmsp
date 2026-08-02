@@ -35,6 +35,19 @@ static void print_duration(const playback_context_t *ctx) {
 }
 
 int main() {
+    constexpr int n = 10;
+    playback_context_t *players[n];
+
+    for (int i = 0; i < n; i++) {
+        players[i] = msp_init();
+        msp_play(players[i], song1);
+        sleep_ms(500);
+    }
+    for (int i = 0; i < n; i++) {
+        msp_deinit(players[i]);
+    }
+
+
     playback_context_t *player = msp_init();
     msp_play(player, song1);
     print_status_with_delay(player, 0);
