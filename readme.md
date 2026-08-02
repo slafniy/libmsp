@@ -18,9 +18,9 @@ works in the _main thread_. All other functions are expected to return instantly
 It does not decode many frames ahead and does not waste much CPU.
 
 Usage general steps are:
-1. Initialize library context
-2. Use functions to play, pause, etc
-3. Deinitialize.
+1. Initialize playback context.
+2. Use functions to play, pause, etc.
+3. Deinitialize to free inner resources.
 
 For usage example see [testapp.c](testapp/testapp.c) (WIP)
 
@@ -30,10 +30,10 @@ The minimal code sample:
 #include <unistd.h>
 
 int main() {
-    msp_init();
-    msp_play("music.mp3");
+    playback_context_t *player = msp_init();
+    msp_play(player, "music.mp3");
     sleep(10);  // without sleep msp_play() instantly returns and you won't hear anything
-    msp_deinit();
+    msp_deinit(player);
     return 0;
 }
 ```
