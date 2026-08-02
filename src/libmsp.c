@@ -727,6 +727,10 @@ char **msp_get_metadata(const char *filename, const char **keys, const uint64_t 
 
     // It's a caller responsibility to free this memory
     char **results = calloc(keys_count, sizeof(char *));
+    if (!results) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Cannot allocate memory for results");
+        return nullptr;
+    }
 
     // Here we should have metadata
     for (size_t i = 0; i < keys_count; i++) {
