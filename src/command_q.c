@@ -2,7 +2,7 @@
 
 #include <pthread.h>
 
-void msp_q_init(msp_command_q_t *q) {
+void cq_init(cq_command_queue_t *q) {
     q->head = 0;
     q->tail = 0;
     q->count = 0;
@@ -10,12 +10,12 @@ void msp_q_init(msp_command_q_t *q) {
     pthread_cond_init(&q->cond, nullptr);
 }
 
-void msp_q_destroy(msp_command_q_t *q) {
+void cq_destroy(cq_command_queue_t *q) {
     pthread_mutex_destroy(&q->mutex);
     pthread_cond_destroy(&q->cond);
 }
 
-bool msp_q_push(msp_command_q_t *q, const msp_command_t command) {
+bool cq_push(cq_command_queue_t *q, const cq_command_t command) {
     pthread_mutex_lock(&q->mutex);
 
     if (q->count >= MSP_Q_SIZE) {
@@ -34,7 +34,7 @@ bool msp_q_push(msp_command_q_t *q, const msp_command_t command) {
 }
 
 // Blocks until something appears
-void msp_q_pop(msp_command_q_t *q, msp_command_t *out_command) {
+void cq_pop(cq_command_queue_t *q, cq_command_t *out_command) {
     pthread_mutex_lock(&q->mutex);
 
     while (q->count == 0) {
@@ -49,7 +49,7 @@ void msp_q_pop(msp_command_q_t *q, msp_command_t *out_command) {
 }
 
 // Instant result
-bool msp_q_try_pop(msp_command_q_t *q, msp_command_t *out_command) {
+bool cq_try_pop(cq_command_queue_t *q, cq_command_t *out_command) {
     pthread_mutex_lock(&q->mutex);
 
     if (q->count == 0) {

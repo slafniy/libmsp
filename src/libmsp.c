@@ -83,7 +83,7 @@ typedef struct playback_context_t {
 
     // other playback thread data
     pthread_t playback_thread; // handles commands and uses ffmpeg libs to open and play files
-    msp_command_q_t *command_q; // queue for commands for playback thread
+    cq_command_queue_t *command_q; // queue for commands for playback thread
     SDL_AudioStream *sdl_stream;
     uint32_t sdl_queue_size_bytes; // to determine SDL max queue size depending on audio parameters
 } playback_context_t;
@@ -312,7 +312,7 @@ static bool playback_set_position(playback_context_t *ctx, const int64_t positio
 }
 
 // Playback thread function. Determines what thread should do in the next iteration and sets playback_context->status
-static void handle_command(playback_context_t *ctx, const msp_command_t *command) {
+static void handle_command(playback_context_t *ctx, const cq_command_t *command) {
     switch (command->type) {
         case MSP_PLAY:
             stop_playback(ctx);
@@ -477,17 +477,17 @@ static void *playback_thread_func(void *arg) {
 
     // Playback main loop. Listens commands and executes them, and decodes frames if needed
     while (true) {
-        msp_command_t command;
+        cq_command_t command;
         bool has_command = false;
 
         // If playing - quickly check if we got a new command and not pause decoding
         // TODO: add some sync here. If we decode fast enough, we still have plenty of time and can sleep more
         // https://github.com/slafniy/libmsp/issues/1
         if (ctx->status == MSP_STATUS_PLAYING) {
-            has_command = msp_q_try_pop(ctx->command_q, &command);
+            has_command = cq_try_pop(ctx->command_q, &command);
         } else {
             // if not playing - just wait for a command
-            msp_q_pop(ctx->command_q, &command);
+            cq_pop(ctx->command_q, &command);
             has_command = true;
         }
 
@@ -526,7 +526,7 @@ static bool init_playback_context(playback_context_t *ctx) {
         return false;
     }
 
-    msp_q_init(ctx->command_q);
+    cq_init(ctx->command_q);
     clear_playback_context(ctx);
 
     if (pthread_create(&ctx->playback_thread, nullptr, playback_thread_func, ctx) != 0) {
@@ -559,7 +559,7 @@ static void destroy_playback_context(playback_context_t **playback_context) {
     if (ctx_ptr->av_frame) av_frame_free(&ctx_ptr->av_frame);
     if (ctx_ptr->sdl_stream) destroy_sdl3(ctx_ptr); // also sets to NULL
     if (ctx_ptr->command_q) {
-        msp_q_destroy(ctx_ptr->command_q);
+        cq_destroy(ctx_ptr->command_q);
         free(ctx_ptr->command_q);
     }
 
@@ -569,12 +569,12 @@ static void destroy_playback_context(playback_context_t **playback_context) {
 
 
 // Sends a command to Playback thread
-static bool exec_command(const msp_command_t command, const playback_context_t *ctx) {
-    if (!msp_q_push(ctx->command_q, command)) {
-        LOG_ERROR(MAIN_THREAD_NAME, "%s command failed: the command q is full!", msp_command_to_str(command.type));
+static bool exec_command(const cq_command_t command, const playback_context_t *ctx) {
+    if (!cq_push(ctx->command_q, command)) {
+        LOG_ERROR(MAIN_THREAD_NAME, "%s command failed: the command q is full!", cq_command_to_str(command.type));
         return false;
     }
-    LOG_INFO(MAIN_THREAD_NAME, "%s command sent to playback thread", msp_command_to_str(command.type));
+    LOG_INFO(MAIN_THREAD_NAME, "%s command sent to playback thread", cq_command_to_str(command.type));
     return true;
 }
 
@@ -607,8 +607,8 @@ void msp_deinit(playback_context_t *ctx) {
                  "Possibly there's a flow in your application logic");
         return;
     }
-    const msp_command_t exit_cmd = {.type = MSP_EXIT};
-    while (!msp_q_push(ctx->command_q, exit_cmd)) {
+    const cq_command_t exit_cmd = {.type = MSP_EXIT};
+    while (!cq_push(ctx->command_q, exit_cmd)) {
         // to be sure exit command passes. Shouldn't be happening much in the real life
     }
     destroy_playback_context(&ctx);
@@ -619,7 +619,7 @@ bool msp_play(const playback_context_t *ctx, const char *filename) {
         LOG_WARN(MAIN_THREAD_NAME, "msp_play() called with playback context == NULL");
         return false;
     }
-    const msp_command_t command = {
+    const cq_command_t command = {
         .type = MSP_PLAY,
         .payload.filename = strdup(filename)
     };
@@ -636,7 +636,7 @@ bool msp_stop(const playback_context_t *ctx) {
         LOG_WARN(MAIN_THREAD_NAME, "msp_stop() called with playback context == NULL");
         return false;
     }
-    const msp_command_t command = {.type = MSP_STOP};
+    const cq_command_t command = {.type = MSP_STOP};
     return exec_command(command, ctx);
 }
 
@@ -646,7 +646,7 @@ bool msp_set_volume(const playback_context_t *ctx, float volume) {
         return false;
     }
     volume = fmaxf(0.0f, fminf(volume, 1.0f));
-    const msp_command_t command = {
+    const cq_command_t command = {
         .type = MSP_SET_VOLUME,
         .payload.volume = volume
     };
@@ -658,7 +658,7 @@ bool msp_set_position(const playback_context_t *ctx, const uint32_t position_ms)
         LOG_WARN(MAIN_THREAD_NAME, "msp_set_position() called with playback context == NULL");
         return false;
     }
-    const msp_command_t command = {
+    const cq_command_t command = {
         .type = MSP_SET_POSITION,
         .payload.position_ms = (int64_t) position_ms
     };
@@ -705,7 +705,7 @@ bool msp_toggle_pause(const playback_context_t *ctx) {
         LOG_WARN(MAIN_THREAD_NAME, "msp_get_duration() called with playback context == NULL");
         return false;
     }
-    const msp_command_t command = {.type = MSP_TOGGLE_PAUSE};
+    const cq_command_t command = {.type = MSP_TOGGLE_PAUSE};
     return exec_command(command, ctx);
 }
 
