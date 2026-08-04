@@ -289,17 +289,16 @@ static bool open_new_file(playback_context_t *ctx) {
     }
 
     // Allocate packet and frame for future decoding
-    ctx->av_packet = av_packet_alloc();
+    if (!ctx->av_packet) ctx->av_packet = av_packet_alloc();
     if (!ctx->av_packet) {
         LOG_ERROR(PLAYBACK_THREAD_NAME, "av_packet_alloc() failed");
         return false;
     }
-    ctx->av_frame = av_frame_alloc();
+    if (!ctx->av_frame) ctx->av_frame = av_frame_alloc();
     if (!ctx->av_frame) {
         LOG_ERROR(PLAYBACK_THREAD_NAME, "av_frame_alloc() failed");
         return false;
     }
-
 
     LOG_INFO(PLAYBACK_THREAD_NAME, "Successfully loaded container <%s> with codec [%s]",
              ctx->av_format_context->iformat->name, codec->name);
@@ -357,6 +356,7 @@ static void handle_command(playback_context_t *ctx, const cq_command_t *command)
             if (!open_new_file(ctx)) {
                 LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot play %s", ctx->filename);
                 set_status_call_callback(MSP_STATUS_ERROR, ctx);
+                clear_playback_context(ctx);
                 break;
             }
             set_status_call_callback(MSP_STATUS_PLAYING, ctx);
@@ -592,7 +592,11 @@ static void destroy_sdl3(playback_context_t *ctx) {
 static void destroy_playback_context(playback_context_t **playback_context) {
     if (!*playback_context) return;
     const auto ctx_ptr = *playback_context;
-    if (ctx_ptr->playback_thread_started) pthread_join(ctx_ptr->playback_thread, nullptr);
+    if (ctx_ptr->playback_thread_started) {
+        pthread_join(ctx_ptr->playback_thread, nullptr);
+        ctx_ptr->playback_thread_started = false;
+    }
+
     if (ctx_ptr->filename) free(ctx_ptr->filename);
     if (ctx_ptr->av_format_context) avformat_close_input(&ctx_ptr->av_format_context); // also sets it to NULL
     if (ctx_ptr->av_codec_context) avcodec_free_context(&ctx_ptr->av_codec_context); // also sets it to NULL

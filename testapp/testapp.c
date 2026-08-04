@@ -58,6 +58,7 @@ int main() {
 
     playback_context_t *player = msp_init();
     msp_register_on_status_change_callback(player, (player_status_callback_t)on_new_status_callback, nullptr);
+    msp_play(player, "/not/existing/path.mp3");
     msp_play(player, song1);
     print_status_with_delay(player, 0);
     print_duration(player);
