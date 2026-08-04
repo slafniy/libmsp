@@ -47,7 +47,8 @@ FetchContent_MakeAvailable(SDL3)
 # The main output - single shared library
 add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c
         src/command_q.h
-        src/command_q.c)
+        src/command_q.c
+        src/logging.h)
 set_target_properties(libmsp PROPERTIES
         PREFIX ""
         VERSION 0.3.0
