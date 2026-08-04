@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 
 #include "../src/libmsp.h"
@@ -35,7 +36,8 @@ static void print_duration(const playback_context_t *ctx) {
 }
 
 static void on_new_status_callback(const player_status_t status, const void *user_data) {
-    printf(">> NEW PLAYER STATUS: %d\n", status);
+    const int *player_num = user_data;
+    printf(">> NEW PLAYER #%d STATUS: %d\n", player_num != nullptr ? *player_num : 0, status);
 }
 
 int main() {
@@ -44,7 +46,8 @@ int main() {
 
     for (int i = 0; i < n; i++) {
         players[i] = msp_init();
-        msp_register_on_status_change_callback(players[i], (player_status_callback_t)on_new_status_callback, nullptr);
+        int *player_num = &i;
+        msp_register_on_status_change_callback(players[i], (player_status_callback_t)on_new_status_callback, player_num);
         msp_play(players[i], song1);
         sleep_ms(500);
     }
@@ -54,6 +57,7 @@ int main() {
 
 
     playback_context_t *player = msp_init();
+    msp_register_on_status_change_callback(player, (player_status_callback_t)on_new_status_callback, nullptr);
     msp_play(player, song1);
     print_status_with_delay(player, 0);
     print_duration(player);

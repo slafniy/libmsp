@@ -132,11 +132,15 @@ static void calculate_duration_ms(playback_context_t *ctx) {
 
 void set_status_call_callback(const player_status_t new_status, playback_context_t *ctx) {
     if (!ctx) return;
-    ctx->status = new_status;
-    if (!ctx->status_callback_data.status_callback) return;
+
+    // activate status change callback if we 1. have the callback 2. status is actually changed
     pthread_mutex_lock(&ctx->status_callback_data.mutex);
-    ctx->status_callback_data.status_callback(ctx->status, ctx->status_callback_data.user_data);
+    if (ctx->status_callback_data.status_callback && ctx->status != new_status) {
+        ctx->status_callback_data.status_callback(ctx->status, ctx->status_callback_data.user_data);
+    }
     pthread_mutex_unlock(&ctx->status_callback_data.mutex);
+
+    ctx->status = new_status;
 }
 
 // Clears context, preparing it for the new file. Context should be initialized.
@@ -583,7 +587,7 @@ static void destroy_playback_context(playback_context_t **playback_context) {
         cq_destroy(ctx_ptr->command_q);
         free(ctx_ptr->command_q);
     }
-    free(ctx_ptr->status_callback_data.user_data);
+    ctx_ptr->status_callback_data.user_data = nullptr;  // caller should free it
     pthread_mutex_destroy(&ctx_ptr->status_callback_data.mutex);
 
     free(ctx_ptr);

@@ -41,6 +41,9 @@ typedef enum {
  */
 typedef struct playback_context_t playback_context_t;
 
+/**
+ * On Status Change callback definition
+ */
 typedef void (*player_status_callback_t)(player_status_t new_status, void *user_data);
 
 /**
@@ -123,6 +126,14 @@ int64_t msp_get_duration(const playback_context_t *ctx);
  */
 player_status_t msp_get_status(const playback_context_t *ctx);
 
+/**
+ * Register a callback which activates on every status change.
+ * @param ctx handle returned by msp_init().
+ * @param callback your function to call on status change.
+ * @param user_data your local context, can be NULL if you have only single callback registration.
+ * The caller is responsible to free this data.
+ * @return true if a callback is registered, false otherwise.
+ */
 bool msp_register_on_status_change_callback(playback_context_t *ctx, player_status_callback_t callback, void *user_data);
 
 /**
