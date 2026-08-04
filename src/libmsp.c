@@ -130,7 +130,9 @@ static void calculate_duration_ms(playback_context_t *ctx) {
 }
 
 
-void call_status_update_callback(playback_context_t *ctx) {
+void set_status_call_callback(const player_status_t new_status, playback_context_t *ctx) {
+    if (!ctx) return;
+    ctx->status = new_status;
     if (!ctx->status_callback_data.status_callback) return;
     pthread_mutex_lock(&ctx->status_callback_data.mutex);
     ctx->status_callback_data.status_callback(ctx->status, ctx->status_callback_data.user_data);
@@ -150,8 +152,7 @@ static void clear_playback_context(playback_context_t *ctx) {
     ctx->duration_ms = 0;
     ctx->decoded_pos_ms = 0;
     ctx->audio_stream_index = -1;
-    ctx->status = MSP_STATUS_IDLE;
-    call_status_update_callback(ctx);
+    set_status_call_callback(MSP_STATUS_IDLE, ctx);
 
     // Close per-file-unique contexts
     if (ctx->av_format_context) avformat_close_input(&ctx->av_format_context);
@@ -338,10 +339,10 @@ static void handle_command(playback_context_t *ctx, const cq_command_t *command)
             LOG_INFO(PLAYBACK_THREAD_NAME, "New music file: %s", ctx->filename);
             if (!open_new_file(ctx)) {
                 LOG_ERROR(PLAYBACK_THREAD_NAME, "Cannot play %s", ctx->filename);
-                ctx->status = MSP_STATUS_ERROR;
+                set_status_call_callback(MSP_STATUS_ERROR, ctx);
                 break;
             }
-            ctx->status = MSP_STATUS_PLAYING;
+            set_status_call_callback(MSP_STATUS_PLAYING, ctx);
             SDL_ResumeAudioStreamDevice(ctx->sdl_stream);
             break;
         case MSP_STOP:
@@ -350,11 +351,11 @@ static void handle_command(playback_context_t *ctx, const cq_command_t *command)
             break;
         case MSP_TOGGLE_PAUSE:
             if (ctx->status == MSP_STATUS_PLAYING) {
-                ctx->status = MSP_STATUS_PAUSED;
+                set_status_call_callback(MSP_STATUS_PAUSED, ctx);
                 SDL_PauseAudioStreamDevice(ctx->sdl_stream);
                 LOG_INFO(PLAYBACK_THREAD_NAME, "Pausing");
             } else if (ctx->status == MSP_STATUS_PAUSED) {
-                ctx->status = MSP_STATUS_PLAYING;
+                set_status_call_callback(MSP_STATUS_PLAYING, ctx);
                 SDL_ResumeAudioStreamDevice(ctx->sdl_stream);
                 LOG_INFO(PLAYBACK_THREAD_NAME, "Resuming");
             }
@@ -413,7 +414,7 @@ static void decode_next_frame(playback_context_t *ctx) {
             // Stop playback if all frames played and SDL q is empty
             if (SDL_GetAudioStreamQueued(ctx->sdl_stream) == 0) {
                 LOG_INFO(PLAYBACK_THREAD_NAME, "Playback finished (EOF)");
-                ctx->status = MSP_STATUS_IDLE;
+                set_status_call_callback(MSP_STATUS_IDLE, ctx);
             }
         } else {
             // something bad happened
@@ -489,7 +490,7 @@ static void decode_next_frame(playback_context_t *ctx) {
 
 static void *playback_thread_func(void *arg) {
     playback_context_t *ctx = arg;
-    ctx->status = MSP_STATUS_IDLE;
+    set_status_call_callback(MSP_STATUS_IDLE, ctx);
 
     // Playback main loop. Listens commands and executes them, and decodes frames if needed
     while (true) {
