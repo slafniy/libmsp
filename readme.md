@@ -1,4 +1,4 @@
-[![last master build](https://github.com/slafniy/libmsp/actions/workflows/build_release.yml/badge.svg?branch=master&v=1)](https://github.com/slafniy/libmsp/actions/workflows/build_release.yml/badge.svg?event=push&branch=master)
+[![Build](https://github.com/slafniy/libmsp/actions/workflows/build_release.yml/badge.svg?event=push)](https://github.com/slafniy/libmsp/actions/workflows/build_release.yml)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/slafniy/libmsp?color=blue&label=version)](https://github.com/slafniy/libmsp/releases)
 ### What is libmsp?
 A small linux shared library which plays music files. Written in C.
