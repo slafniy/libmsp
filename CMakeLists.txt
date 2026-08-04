@@ -51,7 +51,7 @@ add_library(libmsp SHARED ${CMAKE_CURRENT_SOURCE_DIR}/src/libmsp.c
         src/logging.h)
 set_target_properties(libmsp PROPERTIES
         PREFIX ""
-        VERSION 0.3.0
+        VERSION 0.3.1
         SOVERSION 0
 )
 
