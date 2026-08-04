@@ -61,7 +61,7 @@ static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait 
 
 typedef struct status_callback_data_t {
     player_status_callback_t status_callback; // callback which called when status changes
-    void *user_data;  // callback context
+    void *user_data; // callback context
     pthread_mutex_t mutex; // for thread-safe read and set fields above
 } status_callback_data_t;
 
@@ -89,6 +89,7 @@ typedef struct playback_context_t {
 
     // other playback thread data
     pthread_t playback_thread; // handles commands and uses ffmpeg libs to open and play files
+    bool playback_thread_started;
     cq_command_queue_t *command_q; // queue for commands for playback thread
     SDL_AudioStream *sdl_stream;
     uint32_t sdl_queue_size_bytes; // to determine SDL max queue size depending on audio parameters
@@ -135,10 +136,13 @@ void set_status_call_callback(const player_status_t new_status, playback_context
 
     // activate status change callback if we 1. have the callback 2. status is actually changed
     pthread_mutex_lock(&ctx->status_callback_data.mutex);
-    if (ctx->status_callback_data.status_callback && ctx->status != new_status) {
-        ctx->status_callback_data.status_callback(ctx->status, ctx->status_callback_data.user_data);
-    }
+    const auto cb = ctx->status_callback_data.status_callback;
+    const auto user_data = ctx->status_callback_data.user_data;
     pthread_mutex_unlock(&ctx->status_callback_data.mutex);
+
+    if (cb && ctx->status != new_status) {
+        cb(new_status, user_data);
+    }
 
     ctx->status = new_status;
 }
@@ -286,7 +290,16 @@ static bool open_new_file(playback_context_t *ctx) {
 
     // Allocate packet and frame for future decoding
     ctx->av_packet = av_packet_alloc();
+    if (!ctx->av_packet) {
+        LOG_ERROR(PLAYBACK_THREAD_NAME, "av_packet_alloc() failed");
+        return false;
+    }
     ctx->av_frame = av_frame_alloc();
+    if (!ctx->av_frame) {
+        LOG_ERROR(PLAYBACK_THREAD_NAME, "av_frame_alloc() failed");
+        return false;
+    }
+
 
     LOG_INFO(PLAYBACK_THREAD_NAME, "Successfully loaded container <%s> with codec [%s]",
              ctx->av_format_context->iformat->name, codec->name);
@@ -533,6 +546,8 @@ static void *playback_thread_func(void *arg) {
 }
 
 static bool init_playback_context(playback_context_t *ctx) {
+    ctx->playback_thread_started = false;
+
     // Init SDL audio output system
     if (!init_sdl3(ctx)) {
         LOG_ERROR(MAIN_THREAD_NAME, "Cannot initialize SDL3 audio stream");
@@ -555,8 +570,10 @@ static bool init_playback_context(playback_context_t *ctx) {
     clear_playback_context(ctx);
 
     if (pthread_create(&ctx->playback_thread, nullptr, playback_thread_func, ctx) != 0) {
+        LOG_ERROR(MAIN_THREAD_NAME, "msp_init(): cannot create playback thread");
         return false;
     }
+    ctx->playback_thread_started = true;
 
     return true;
 }
@@ -575,7 +592,7 @@ static void destroy_sdl3(playback_context_t *ctx) {
 static void destroy_playback_context(playback_context_t **playback_context) {
     if (!*playback_context) return;
     const auto ctx_ptr = *playback_context;
-    pthread_join(ctx_ptr->playback_thread, nullptr);
+    if (ctx_ptr->playback_thread_started) pthread_join(ctx_ptr->playback_thread, nullptr);
     if (ctx_ptr->filename) free(ctx_ptr->filename);
     if (ctx_ptr->av_format_context) avformat_close_input(&ctx_ptr->av_format_context); // also sets it to NULL
     if (ctx_ptr->av_codec_context) avcodec_free_context(&ctx_ptr->av_codec_context); // also sets it to NULL
@@ -587,7 +604,6 @@ static void destroy_playback_context(playback_context_t **playback_context) {
         cq_destroy(ctx_ptr->command_q);
         free(ctx_ptr->command_q);
     }
-    ctx_ptr->status_callback_data.user_data = nullptr;  // caller should free it
     pthread_mutex_destroy(&ctx_ptr->status_callback_data.mutex);
 
     free(ctx_ptr);
@@ -727,7 +743,8 @@ player_status_t msp_get_status(const playback_context_t *ctx) {
     return ctx->status;
 }
 
-bool msp_register_on_status_change_callback(playback_context_t *ctx, const player_status_callback_t callback, void *user_data) {
+bool msp_register_on_status_change_callback(playback_context_t *ctx, const player_status_callback_t callback,
+                                            void *user_data) {
     if (!ctx) {
         LOG_ERROR(MAIN_THREAD_NAME, "Cannot register callback: ctx == NULL");
         return false;
