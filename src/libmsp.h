@@ -41,6 +41,8 @@ typedef enum {
  */
 typedef struct playback_context_t playback_context_t;
 
+typedef void (*player_status_callback_t)(player_status_t new_status, void *user_data);
+
 /**
  * Initializes the playback context. Returns context pointer which is used for other functions with a little exception:
  * the only allowed function to call without initialization is msp_get_metadata().
@@ -120,6 +122,8 @@ int64_t msp_get_duration(const playback_context_t *ctx);
  * The delay won't be huge though. You can expect it to react in several ms.
  */
 player_status_t msp_get_status(const playback_context_t *ctx);
+
+bool msp_register_on_status_change_callback(playback_context_t *ctx, player_status_callback_t callback, void *user_data);
 
 /**
  * Opens file, reads its metadata. Does NOT require msp_init(), can be called freely at any moment.

@@ -59,14 +59,20 @@ constexpr int MAX_STACK_SAMPLES = 8192; // should be enough for S16 * 2 channels
 static constexpr float PLAYBACK_BUFFER_SIZE_SEC = 0.25f;
 static constexpr int ALLOWED_AUDIO_DELAY_MS = 5; // How long is allowed to wait if playback buffer is already full
 
+typedef struct status_callback_data_t {
+    player_status_callback_t status_callback; // callback which called when status changes
+    void *user_data;  // callback context
+    pthread_mutex_t mutex; // for thread-safe read and set fields above
+} status_callback_data_t;
 
 // Playback context, used to carry playback thread context between playback thread functions
 typedef struct playback_context_t {
     // libmsp specific data
     char *filename; // path to current file
-    _Atomic player_status_t status; // playback status, used to check playback thread state
     _Atomic int64_t decoded_pos_ms; // current playback decoder position, slightly ahead of playback
     _Atomic int64_t duration_ms; // full track length
+    _Atomic player_status_t status; // playback status, used to check playback thread state
+    status_callback_data_t status_callback_data;
 
     // ffmpeg data about the current file: stream, decoder, metadata etc
     int audio_stream_index;
@@ -123,6 +129,14 @@ static void calculate_duration_ms(playback_context_t *ctx) {
     }
 }
 
+
+void call_status_update_callback(playback_context_t *ctx) {
+    if (!ctx->status_callback_data.status_callback) return;
+    pthread_mutex_lock(&ctx->status_callback_data.mutex);
+    ctx->status_callback_data.status_callback(ctx->status, ctx->status_callback_data.user_data);
+    pthread_mutex_unlock(&ctx->status_callback_data.mutex);
+}
+
 // Clears context, preparing it for the new file. Context should be initialized.
 static void clear_playback_context(playback_context_t *ctx) {
     if (!ctx) {
@@ -137,6 +151,8 @@ static void clear_playback_context(playback_context_t *ctx) {
     ctx->decoded_pos_ms = 0;
     ctx->audio_stream_index = -1;
     ctx->status = MSP_STATUS_IDLE;
+    call_status_update_callback(ctx);
+
     // Close per-file-unique contexts
     if (ctx->av_format_context) avformat_close_input(&ctx->av_format_context);
     if (ctx->av_codec_context) avcodec_free_context(&ctx->av_codec_context);
@@ -518,6 +534,11 @@ static bool init_playback_context(playback_context_t *ctx) {
         return false;
     }
 
+    // Status change callback data
+    pthread_mutex_init(&ctx->status_callback_data.mutex, nullptr);
+    ctx->status_callback_data.status_callback = nullptr;
+    ctx->status_callback_data.user_data = nullptr;
+
     // Initialize command q which transfers commands from main thread to playback thread
     ctx->command_q = calloc(1, sizeof(*ctx->command_q));
     if (!ctx->command_q) {
@@ -561,6 +582,8 @@ static void destroy_playback_context(playback_context_t **playback_context) {
         cq_destroy(ctx_ptr->command_q);
         free(ctx_ptr->command_q);
     }
+    free(ctx_ptr->status_callback_data.user_data);
+    pthread_mutex_destroy(&ctx_ptr->status_callback_data.mutex);
 
     free(ctx_ptr);
     *playback_context = nullptr;
@@ -697,6 +720,26 @@ int64_t msp_get_duration(const playback_context_t *ctx) {
 player_status_t msp_get_status(const playback_context_t *ctx) {
     if (!ctx) return MSP_STATUS_UNINITIALIZED;
     return ctx->status;
+}
+
+bool msp_register_on_status_change_callback(playback_context_t *ctx, const player_status_callback_t callback, void *user_data) {
+    if (!ctx) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Cannot register callback: ctx == NULL");
+        return false;
+    }
+    if (!callback) {
+        LOG_ERROR(MAIN_THREAD_NAME, "Cannot register callback: callback == NULL");
+        return false;
+    }
+
+    pthread_mutex_lock(&ctx->status_callback_data.mutex);
+    ctx->status_callback_data.status_callback = callback;
+    ctx->status_callback_data.user_data = user_data;
+    pthread_mutex_unlock(&ctx->status_callback_data.mutex);
+
+    LOG_INFO(MAIN_THREAD_NAME, "player status callback is registered successfully");
+
+    return true;
 }
 
 bool msp_toggle_pause(const playback_context_t *ctx) {

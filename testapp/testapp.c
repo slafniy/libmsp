@@ -34,12 +34,17 @@ static void print_duration(const playback_context_t *ctx) {
     printf("Duration: %ld ms\n", dur);
 }
 
+static void on_new_status_callback(const player_status_t status, const void *user_data) {
+    printf(">> NEW PLAYER STATUS: %d\n", status);
+}
+
 int main() {
     constexpr int n = 10;
     playback_context_t *players[n];
 
     for (int i = 0; i < n; i++) {
         players[i] = msp_init();
+        msp_register_on_status_change_callback(players[i], (player_status_callback_t)on_new_status_callback, nullptr);
         msp_play(players[i], song1);
         sleep_ms(500);
     }
